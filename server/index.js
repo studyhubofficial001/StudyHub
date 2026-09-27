@@ -12,7 +12,7 @@ connectDB();
 const app = express();
 const allowedOrigins = [
   "http://localhost:5173", 
-  "https://study-hub-seven-self.vercel.app"];
+  "https://client-sigma-puce-78.vercel.app"];
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
