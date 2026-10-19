@@ -1,1 +1,73 @@
 @import "tailwindcss";
+
+html, body, #root {
+  min-height: 100%;
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  font-family: 'Poppins', sans-serif;
+  background: #f4f7ef;
+  color: #0f172a;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+body[data-theme='dark'] {
+  --app-bg: #0f172a;
+  --button-bg: #1e293b;
+  --button-hover: #0b1220;
+  --button-text: #f8fafc;
+  background: var(--app-bg);
+  color: var(--button-text);
+}
+
+body[data-theme='dark'] button,
+body[data-theme='dark'] [type='button'],
+body[data-theme='dark'] [type='submit'],
+body[data-theme='dark'] [type='reset'],
+body[data-theme='dark'] .bg-slate-900,
+body[data-theme='dark'] .bg-slate-800,
+body[data-theme='dark'] .bg-slate-700,
+body[data-theme='dark'] .bg-slate-600,
+body[data-theme='dark'] .bg-slate-500,
+body[data-theme='dark'] .bg-gray-900,
+body[data-theme='dark'] .bg-gray-800,
+body[data-theme='dark'] .bg-gray-700,
+body[data-theme='dark'] .bg-gray-600,
+body[data-theme='dark'] a[class*='bg-slate-'],
+body[data-theme='dark'] a[class*='bg-gray-'] {
+  background-color: var(--button-bg) !important;
+  color: var(--button-text) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+}
+
+body[data-theme='dark'] button:hover,
+body[data-theme='dark'] [type='button']:hover,
+body[data-theme='dark'] [type='submit']:hover,
+body[data-theme='dark'] [type='reset']:hover,
+body[data-theme='dark'] .hover\:bg-slate-900:hover,
+body[data-theme='dark'] .hover\:bg-slate-800:hover,
+body[data-theme='dark'] .hover\:bg-slate-700:hover,
+body[data-theme='dark'] .hover\:bg-slate-600:hover,
+body[data-theme='dark'] .hover\:bg-slate-500:hover,
+body[data-theme='dark'] .hover\:bg-gray-900:hover,
+body[data-theme='dark'] .hover\:bg-gray-800:hover,
+body[data-theme='dark'] .hover\:bg-gray-700:hover,
+body[data-theme='dark'] .hover\:bg-gray-600:hover,
+body[data-theme='dark'] a[class*='bg-slate-']:hover,
+body[data-theme='dark'] a[class*='bg-gray-']:hover {
+  background-color: var(--button-hover) !important;
+  color: var(--button-text) !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}

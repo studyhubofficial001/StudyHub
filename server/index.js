@@ -12,7 +12,7 @@ connectDB();
 const app = express();
 const allowedOrigins = [
   "http://localhost:5173", 
-  "https://client-sigma-puce-78.vercel.app"];
+  "https://studyhub4u.vercel.app"];
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
@@ -22,6 +22,8 @@ app.use(cookieParser());
 app.use('/auth', require('./routes/authRoutes'));
 app.use('/users', require('./routes/userRoutes'));
 app.use('/admin', require('./routes/adminRoutes'));
+app.use('/resources', require('./routes/resourceRoutes'));
+app.use('/syllabus', require('./routes/syllabusRoutes'));
 
 app.get("/api/ai/ping",async (req, res) => {
   try {

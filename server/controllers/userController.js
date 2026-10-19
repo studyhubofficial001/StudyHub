@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Subject = require('../models/Subjects');
 
 const onboarding = async (req, res) => {
     const { year } = req.body;
@@ -39,6 +40,18 @@ const onboarding = async (req, res) => {
     }
 };
 
+const getSubjectsByYear = async (req, res) => {
+    const year = req.user.year;
+    try {
+        const subjects = await Subject.find({ year }).sort({ createdAt: -1 });
+        res.status(200).json(subjects);
+    } catch (error) {
+        console.error('Error fetching subjects:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+}; 
+
 module.exports = {
     onboarding,
+    getSubjectsByYear,
 };
