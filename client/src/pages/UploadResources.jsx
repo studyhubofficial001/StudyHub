@@ -8,19 +8,11 @@ import { useState, useEffect, useRef } from "react";
 import { getAdminSubjects } from "../api/subjectsApi";
 import {
     getAdminResources,
-    requestAdminResourceUploadUrl,
-    confirmAdminResourceUpload,
+    createAdminResource,
     updateAdminResource,
     deleteAdminResource,
     getResourceDownloadUrl,
 } from "../api/resourcesApi";
-
-const MAX_RESOURCE_UPLOAD_SIZE = 300 * 1024 * 1024;
-
-const calculateSHA256 = async (file) => {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-    return Array.from(new Uint8Array(hashBuffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
-};
 
 const UploadResources = () => {
     const {
@@ -38,7 +30,6 @@ const UploadResources = () => {
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [uploadStatus, setUploadStatus] = useState('');
     const [editingResource, setEditingResource] = useState(null);
     const [resourceEditForm, setResourceEditForm] = useState({
         title: '',
@@ -242,87 +233,18 @@ const UploadResources = () => {
 
     const HandleSubmit = async (e) => {
         e.preventDefault();
-        const form = e.currentTarget;
         setIsSubmitting(true);
-        setUploadStatus('');
+        const formData = new FormData(e.target);
         try {
-            const formData = new FormData(form);
-            const file = formData.getAll('file');
-            const metadata = {
-                title: String(formData.get('title') || '').trim(),
-                subject: String(formData.get('subject') || ''),
-                year: String(formData.get('year') || ''),
-                category: String(formData.get('category') || ''),
-            };
-
-            if (!metadata.title || !metadata.subject || !metadata.year || !metadata.category) {
-                throw new Error('Please provide a title and select a subject, year, and category.');
-            }
-            if (!(file[0] instanceof File) || file[0].size === 0) {
-                throw new Error('Please select a PDF file to upload.');
-            }
-            if (file[0].size > MAX_RESOURCE_UPLOAD_SIZE) {
-                throw new Error('The PDF must be 300 MB or smaller.');
-            }
-            if (!/\.pdf$/i.test(file[0].name) || (file[0].type && file[0].type !== 'application/pdf')) {
-                throw new Error('Only PDF files are supported.');
-            }
-
-            const header = new TextDecoder().decode(await file[0].slice(0, 1024).arrayBuffer());
-            if (!header.includes('%PDF-')) {
-                throw new Error('The selected file does not have a valid PDF header.');
-            }
-
-            setUploadStatus('Computing PDF SHA-256 checksum...');
-            const hash = await calculateSHA256(file[0]);
-            const uploadMetadata = {
-                ...metadata,
-                originalName: file[0].name,
-                hash,
-                size: file[0].size,
-            };
-
-            setUploadStatus('Checking for duplicates and requesting a secure upload URL...');
-            const { data: uploadRequest } = await requestAdminResourceUploadUrl(uploadMetadata);
-
-            setUploadStatus('Uploading PDF directly to secure storage...');
-            let storageResponse;
-            try {
-                storageResponse = await fetch(uploadRequest.uploadUrl, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/pdf',
-                    },
-                    body: file[0],
-                    credentials: 'omit',
-                });
-            } catch (storageError) {
-                console.error('Browser could not reach B2 storage:', storageError);
-                throw new Error(
-                    `The browser could not reach B2 storage at ${new URL(uploadRequest.uploadUrl).host}. Check the bucket CORS rule for this page origin and S3 PUT.`
-                );
-            }
-            if (!storageResponse.ok) {
-                const responseText = await storageResponse.text();
-                throw new Error(
-                    `B2 rejected the upload (${storageResponse.status})${responseText ? `: ${responseText.slice(0, 300)}` : '.'}`
-                );
-            }
-
-            setUploadStatus('Verifying the upload and saving resource details...');
-            await confirmAdminResourceUpload(uploadMetadata);
-            setUploadStatus('');
-            form.reset();
+            const response = await createAdminResource(formData);
             showNotification('success', 'Resource uploaded successfully!');
+            console.log('Resource uploaded successfully:', response.data);
             await getResources();
         } catch (error) {
             console.error('Error uploading resource:', error);
-            const message = error.response?.data?.message || error.message || 'Failed to upload resource';
-            setUploadStatus('');
-            showNotification('error', message);
-        } finally {
-            setIsSubmitting(false);
+            showNotification('error', error.response?.data?.message || 'Failed to upload resource');
         }
+        setIsSubmitting(false);
     };
 
     const previewUrl = editingResource ? downloadUrls[editingResource._id] : '';
@@ -377,16 +299,14 @@ const UploadResources = () => {
                                 name="title"
                                 className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`}
                                 placeholder="Enter resource title"
-                                maxLength={200}
-                                required
                             />
                         </div>
                         <div>
                             <label htmlFor="subjectName" className={`block text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
                                 Subject Name
                             </label>
-                            <select id="subject" name="subject" defaultValue="" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} required>
-                                <option value="" disabled>Select Subject</option>
+                            <select id="subject" name="subject" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`}>
+                                <option>Select Subject</option>
                                 {uniqueSubjects.map((subject) => (
                                     <option key={subject._id} value={subject.name}>
                                         {subject.name}
@@ -398,8 +318,8 @@ const UploadResources = () => {
                             <label className={`block text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
                                 Subject Year
                             </label>
-                            <select id="year" name="year" defaultValue="" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} required>
-                                <option value="" disabled>Select Year</option>
+                            <select id="year" name="year" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`}>
+                                <option>Select Year</option>
                                 {uniqueYears.map((year, index) => (
                                     <option key={index} value={year}>
                                         {year}
@@ -411,8 +331,8 @@ const UploadResources = () => {
                             <label className={`block text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
                                 Subject Category
                             </label>
-                            <select id="category" name="category" defaultValue="" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} required>
-                                <option value="" disabled>Select Category</option>
+                            <select id="category" name="category" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`}>
+                                <option>Select Category</option>
                                 {uniqueCategories.map((category, index) => (
                                     <option key={index} value={category}>
                                         {category}
@@ -424,18 +344,13 @@ const UploadResources = () => {
                             <label htmlFor="resourceFile" className={`mt-4 block text-sm font-medium md:mt-0 ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
                                 Upload Resource File
                             </label>
-                            <input type="file" id="file" name="file" accept=".pdf,application/pdf" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} required />
+                                            <input type="file" id="file" name="file" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} />
                         </div>
                         <div className="mt-6 flex justify-center">
-                            <button type="submit" disabled={isSubmitting} className="w-full cursor-pointer rounded-md bg-slate-800 px-6 py-2 text-white transition-colors duration-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 md:w-50">
+                            <button type="submit" className="w-full cursor-pointer rounded-md bg-slate-800 px-6 py-2 text-white transition-colors duration-200 hover:bg-slate-700 md:w-50">
                                 {isSubmitting ? 'Uploading...' : 'Upload'}
                             </button>
                         </div>
-                        {uploadStatus && (
-                            <p className={`text-sm md:col-span-3 ${mutedText}`} aria-live="polite">
-                                {uploadStatus}
-                            </p>
-                        )}
                     </form>
                 </div>
                 {uploadedResources.length > 0 && (

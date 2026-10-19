@@ -1,5 +1,5 @@
 const Subject = require('../models/Subjects');
-const { PutObjectCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectVersionsCommand } = require("@aws-sdk/client-s3");
+const { PutObjectCommand, DeleteObjectCommand, ListObjectVersionsCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { s3Client } = require("../config/b2Storage");
 const Resource = require("../models/Resource");
@@ -7,56 +7,6 @@ const User = require('../models/User');
 const AcademicRollout = require('../models/AcademicRollout');
 const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
-
-const MAX_RESOURCE_UPLOAD_SIZE = 300 * 1024 * 1024;
-
-const validateResourceUploadMetadata = async (body) => {
-  const { title, subject: subjectName, year, category, originalName, hash, size } = body;
-
-  if (
-    typeof title !== 'string' ||
-    !title.trim() ||
-    title.trim().length > 200 ||
-    typeof subjectName !== 'string' ||
-    !subjectName.trim() ||
-    (typeof year !== 'string' && typeof year !== 'number') ||
-    typeof category !== 'string' ||
-    !category.trim() ||
-    typeof originalName !== 'string' ||
-    !originalName.trim() ||
-    originalName.length > 255 ||
-    /[\\/\u0000-\u001f]/.test(originalName) ||
-    !/\.pdf$/i.test(originalName) ||
-    typeof hash !== 'string' ||
-    !/^[a-f0-9]{64}$/.test(hash) ||
-    !Number.isSafeInteger(Number(size)) ||
-    Number(size) <= 0 ||
-    Number(size) > MAX_RESOURCE_UPLOAD_SIZE
-  ) {
-    return { error: 'Please provide valid resource details and a PDF file up to 300 MB.' };
-  }
-
-  const subject = await Subject.findOne({ name: subjectName.trim() });
-  if (
-    !subject ||
-    Number(year) !== subject.year ||
-    category.trim() !== subject.category
-  ) {
-    return { error: 'Your subject does not match the existing name, year, or category.' };
-  }
-
-  return {
-    value: {
-      title: title.trim(),
-      subject: subject.name,
-      year: String(subject.year),
-      category: subject.category,
-      originalName: originalName.trim(),
-      hash,
-      size: Number(size),
-    },
-  };
-};
 
 const escapeHtml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
@@ -481,15 +431,38 @@ const deleteSubject = async (req, res) => {
   }
 };
 
-const requestResourceUploadUrl = async (req, res) => {
+const uploadResource = async (req, res) => {
   try {
-    const validation = await validateResourceUploadMetadata(req.body);
-    if (validation.error) {
-      return res.status(400).json({ message: validation.error });
-    }
-    const metadata = validation.value;
+    const subject = await Subject.findOne({ name: req.body.subject });
+    const title = req.body.title.trim();
+    const existingResource = await Resource.findOne({
+      title,
+      subject: req.body.subject,
+      year: req.body.year,
+      category: req.body.category,
+    });
 
-    const existing = await Resource.findOne({ fileHash: metadata.hash });
+    if (existingResource) {
+      return res.status(400).json({ message: "A resource with this title already exists for the specified subject, year, and category" });
+    }
+
+    if (
+      !subject ||
+      Number(req.body.year) !== subject.year ||
+      subject.category !== req.body.category
+    ) {
+      return res.status(400).json({
+        message: "Your subject does not match the existing name, year, or category"
+      });
+    }
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const fileHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
+    const existing = await Resource.findOne({ fileHash });
     if (existing) {
       return res.status(409).json({
         message: "This file has already been uploaded",
@@ -497,136 +470,30 @@ const requestResourceUploadUrl = async (req, res) => {
       });
     }
 
-    const existingTitle = await Resource.findOne({
-      title: metadata.title,
-      subject: metadata.subject,
-      year: metadata.year,
-      category: metadata.category,
-    });
-    if (existingTitle) {
-      return res.status(409).json({
-        message: 'A resource with this title already exists for the specified subject, year, and category.',
-      });
-    }
-
-    const fileKey = `resources/${metadata.hash}.pdf`;
-    const uploadUrl = await getSignedUrl(s3Client, new PutObjectCommand({
+    const fileExtension = file.originalname.split('.').pop();
+    const fileKey = `resources/${Date.now()}-${Math.round(Math.random() * 1e9)}.${fileExtension}`;
+    const uploadResponse = await s3Client.send(new PutObjectCommand({
       Bucket: process.env.B2_BUCKET_NAME,
       Key: fileKey,
+      Body: file.buffer,
+      ContentType: file.mimetype,
     }));
-
-    res.status(200).json({
-      uploadUrl,
-      fileKey,
-    });
-  } catch (error) {
-    console.error("Error generating resource upload URL:", error);
-    res.status(500).json({ message: "Failed to generate resource upload URL" });
-  }
-};
-
-const confirmResourceUpload = async (req, res) => {
-  try {
-    const validation = await validateResourceUploadMetadata(req.body);
-    if (validation.error) {
-      return res.status(400).json({ message: validation.error });
-    }
-    const metadata = validation.value;
-
-    const existing = await Resource.findOne({ fileHash: metadata.hash });
-    if (existing) {
-      return res.status(409).json({
-        message: "This file has already been uploaded",
-        resource: existing,
-      });
-    }
-
-    const existingTitle = await Resource.findOne({
-      title: metadata.title,
-      subject: metadata.subject,
-      year: metadata.year,
-      category: metadata.category,
-    });
-    if (existingTitle) {
-      return res.status(409).json({
-        message: 'A resource with this title already exists for the specified subject, year, and category.',
-      });
-    }
-
-    const fileKey = `resources/${metadata.hash}.pdf`;
-    const bucket = process.env.B2_BUCKET_NAME;
-    let head;
-    try {
-      head = await s3Client.send(new HeadObjectCommand({
-        Bucket: bucket,
-        Key: fileKey,
-      }));
-    } catch (error) {
-      if (
-        error.$metadata?.httpStatusCode === 404 ||
-        error.name === 'NotFound' ||
-        error.name === 'NoSuchKey'
-      ) {
-        return res.status(400).json({ message: 'Uploaded PDF not found. Please retry the upload.' });
-      }
-      throw error;
-    }
-    if (
-      head.ContentLength !== metadata.size ||
-      head.ContentType !== 'application/pdf'
-    ) {
-      return res.status(400).json({ message: 'Uploaded PDF failed size or type verification.' });
-    }
-
-    const { Body } = await s3Client.send(new GetObjectCommand({
-      Bucket: bucket,
-      Key: fileKey,
-    }));
-    if (!Body) {
-      throw new Error('B2 returned no object body during upload verification.');
-    }
-
-    const hash = crypto.createHash('sha256');
-    let verifiedSize = 0;
-    let pdfHeader = Buffer.alloc(0);
-
-    for await (const chunk of Body) {
-      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      verifiedSize += bytes.length;
-      hash.update(bytes);
-
-      if (pdfHeader.length < 1024) {
-        pdfHeader = Buffer.concat([pdfHeader, bytes.subarray(0, 1024 - pdfHeader.length)]);
-      }
-    }
-
-    if (
-      verifiedSize !== metadata.size ||
-      hash.digest('hex') !== metadata.hash ||
-      !pdfHeader.includes(Buffer.from('%PDF-'))
-    ) {
-      return res.status(400).json({ message: 'Uploaded PDF failed content integrity verification.' });
-    }
 
     const resource = await Resource.create({
-      title: metadata.title,
-      subject: metadata.subject,
-      year: metadata.year,
-      category: metadata.category,
-      originalName: metadata.originalName,
+      title: req.body.title,
+      subject: req.body.subject,
+      year: req.body.year,
+      category: req.body.category,
+      originalName: file.originalname,
       uploadedBy: req.user._id,
-      fileKey,
-      versionId: head.VersionId,
-      fileHash: metadata.hash,
+      fileKey: fileKey,
+      versionId: uploadResponse.VersionId,
+      fileHash: fileHash,
     });
-
     res.status(201).json({ message: 'Resource uploaded successfully', resource });
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({ message: 'This file has already been uploaded.' });
-    }
-    console.error("Error confirming resource upload:", error);
-    res.status(500).json({ message: "Failed to confirm resource upload" });
+    console.error("Error uploading resource:", error);
+    res.status(500).json({ message: "Error uploading resource", error: error.message });
   }
 };
 
@@ -740,8 +607,7 @@ module.exports = {
   createSubject,
   updateSubject,
   deleteSubject,
-  requestResourceUploadUrl,
-  confirmResourceUpload,
+  uploadResource,
   updateResource,
   deleteResource,
   getResources,
