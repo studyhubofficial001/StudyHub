@@ -40,6 +40,8 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         if (error.response?.status !== 401) {
           console.error('Error checking authentication status:', error);
+        } else {
+          sessionStorage.removeItem('token');
         }
         setUser(null);
         setUploadedResources([]);
@@ -63,6 +65,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Error logging out:', error);
     } finally {
+      sessionStorage.removeItem('token');
       setUser(null);
       setUploadedResources([]);
     }

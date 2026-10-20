@@ -7,7 +7,7 @@ const getRequestToken = (req) => {
     ? authorization.slice('Bearer '.length)
     : null;
 
-  return req.cookies?.token || bearerToken;
+  return bearerToken || req.cookies?.token;
 };
 
 const protect = async (req, res, next) => {

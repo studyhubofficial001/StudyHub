@@ -19,6 +19,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+app.get('/', (req, res) => {
+  res.send('Hello from the Express server!');
+} );
 app.use('/auth', require('./routes/authRoutes'));
 app.use('/users', require('./routes/userRoutes'));
 app.use('/admin', require('./routes/adminRoutes'));

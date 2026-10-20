@@ -89,6 +89,7 @@ const registerUser = async (req, res) => {
             return res.status(200).json({
                 message: 'A new OTP has been sent to your email.',
                 user: getAuthUser(existingUser),
+                token,
             });
         }
         const salt = await bcrypt.genSalt(10);
@@ -110,6 +111,7 @@ const registerUser = async (req, res) => {
             res.status(201).json({
                 message: 'User registered successfully. Please verify your email using the OTP sent.',
                 user: getAuthUser(user),
+                token,
             });
         } else {
             res.status(400).json({ message: 'Invalid user data' });
@@ -192,10 +194,12 @@ const loginUser = async (req, res) => {
             return res.status(400).json({ message: 'Please log in using Google OAuth' });
         }
         if(await bcrypt.compare(password, user.password)) {
-            setAuthCookie(res, generateToken(user._id));
+            const token = generateToken(user._id);
+            setAuthCookie(res, token);
             res.status(200).json({
                 message: 'Login successfully',
                 user: getAuthUser(user),
+                token,
             });
         } else {
             res.status(400).json({ message: 'Invalid email or password' });
@@ -238,10 +242,12 @@ const googleAuth = async (req, res) => {
             await user.save();
         }
 
-        setAuthCookie(res, generateToken(user._id));
+        const token = generateToken(user._id);
+        setAuthCookie(res, token);
         res.status(200).json({
             message: 'Google authentication successful',
             user: getAuthUser(user),
+            token,
         });
     } catch (error) {
         console.error('Error during Google authentication:', error);
