@@ -1,7 +1,12 @@
-const crypto = require('crypto');
-const { PutObjectCommand, DeleteObjectCommand, ListObjectVersionsCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { DeleteObjectCommand, ListObjectVersionsCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const { s3Client } = require('../config/b2Storage');
+const {
+  s3Client,
+  hashFile,
+  uploadFileToB2,
+  cleanupTempFile,
+  cleanupUploadedObject,
+} = require('../config/b2Storage');
 const Syllabus = require('../models/Syllabus');
 
 const getSyllabi = async (req, res) => {
@@ -15,6 +20,7 @@ const getSyllabi = async (req, res) => {
 };
 
 const uploadSyllabus = async (req, res) => {
+  const file = req.file;
   try {
     const existingSyllabus = await Syllabus.findOne();
     if (existingSyllabus) {
@@ -23,7 +29,6 @@ const uploadSyllabus = async (req, res) => {
       });
     }
 
-    const file = req.file;
     if (!file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
@@ -33,7 +38,7 @@ const uploadSyllabus = async (req, res) => {
       return res.status(400).json({ message: 'Only PDF syllabus files are allowed' });
     }
 
-    const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+    const fileHash = await hashFile(file.path);
     const duplicateSyllabus = await Syllabus.findOne({ fileHash });
     if (duplicateSyllabus) {
       return res.status(409).json({
@@ -45,31 +50,38 @@ const uploadSyllabus = async (req, res) => {
     const fileExtension = file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
     const fileKey = `syllabus/${Date.now()}-${Math.round(Math.random() * 1e9)}.${fileExtension}`;
 
-    await s3Client.send(new PutObjectCommand({
-      Bucket: process.env.B2_BUCKET_NAME,
-      Key: fileKey,
-      Body: file.buffer,
-      ContentType: file.mimetype || 'application/pdf',
-    }));
-
-    const syllabus = await Syllabus.create({
-      originalName: file.originalname,
-      uploadedBy: req.user._id,
-      fileKey,
-      fileHash,
+    const uploadResponse = await uploadFileToB2({
+      filePath: file.path,
+      key: fileKey,
+      contentType: file.mimetype || 'application/pdf',
     });
+
+    let syllabus;
+    try {
+      syllabus = await Syllabus.create({
+        originalName: file.originalname,
+        uploadedBy: req.user._id,
+        fileKey,
+        fileHash,
+      });
+    } catch (error) {
+      await cleanupUploadedObject({ key: fileKey, versionId: uploadResponse.VersionId });
+      throw error;
+    }
 
     res.status(201).json({ message: 'Syllabus uploaded successfully', syllabus });
   } catch (error) {
     console.error('Error uploading syllabus:', error);
     res.status(500).json({ message: 'Error uploading syllabus', error: error.message });
+  } finally {
+    await cleanupTempFile(file?.path);
   }
 };
 
 const updateSyllabus = async (req, res) => {
+  const file = req.file;
   try {
     const { id } = req.params;
-    const file = req.file;
 
     if (!file) {
       return res.status(400).json({ message: 'A new PDF file is required to replace the syllabus' });
@@ -85,7 +97,7 @@ const updateSyllabus = async (req, res) => {
       return res.status(404).json({ message: 'Syllabus not found' });
     }
 
-    const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+    const fileHash = await hashFile(file.path);
     const duplicateSyllabus = await Syllabus.findOne({ _id: { $ne: id }, fileHash });
     if (duplicateSyllabus) {
       return res.status(409).json({
@@ -93,46 +105,57 @@ const updateSyllabus = async (req, res) => {
       });
     }
 
-    const versionsResult = await s3Client.send(new ListObjectVersionsCommand({
-      Bucket: process.env.B2_BUCKET_NAME,
-      Prefix: syllabus.fileKey,
-      MaxKeys: 1000,
-    }));
-
-    const allVersions = [
-      ...(versionsResult.Versions || []),
-      ...(versionsResult.DeleteMarkers || []),
-    ];
-
-    for (const version of allVersions) {
-      await s3Client.send(new DeleteObjectCommand({
-        Bucket: process.env.B2_BUCKET_NAME,
-        Key: version.Key,
-        VersionId: version.VersionId,
-      }));
-    }
-
     const fileExtension = file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
     const fileKey = `syllabus/${Date.now()}-${Math.round(Math.random() * 1e9)}.${fileExtension}`;
 
-    await s3Client.send(new PutObjectCommand({
-      Bucket: process.env.B2_BUCKET_NAME,
-      Key: fileKey,
-      Body: file.buffer,
-      ContentType: file.mimetype || 'application/pdf',
-    }));
+    const uploadResponse = await uploadFileToB2({
+      filePath: file.path,
+      key: fileKey,
+      contentType: file.mimetype || 'application/pdf',
+    });
 
-    syllabus.fileKey = fileKey;
-    syllabus.originalName = file.originalname;
-    syllabus.fileHash = fileHash;
-    syllabus.uploadedBy = req.user._id;
+    const oldFileKey = syllabus.fileKey;
+    try {
+      syllabus.fileKey = fileKey;
+      syllabus.originalName = file.originalname;
+      syllabus.fileHash = fileHash;
+      syllabus.uploadedBy = req.user._id;
 
-    await syllabus.save();
+      await syllabus.save();
+    } catch (error) {
+      await cleanupUploadedObject({ key: fileKey, versionId: uploadResponse.VersionId });
+      throw error;
+    }
+
+    try {
+      const versionsResult = await s3Client.send(new ListObjectVersionsCommand({
+        Bucket: process.env.B2_BUCKET_NAME,
+        Prefix: oldFileKey,
+        MaxKeys: 1000,
+      }));
+
+      const allVersions = [
+        ...(versionsResult.Versions || []),
+        ...(versionsResult.DeleteMarkers || []),
+      ];
+
+      for (const version of allVersions) {
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: process.env.B2_BUCKET_NAME,
+          Key: version.Key,
+          VersionId: version.VersionId,
+        }));
+      }
+    } catch (error) {
+      console.error(`Error cleaning up replaced syllabus object ${oldFileKey}:`, error);
+    }
 
     res.status(200).json({ message: 'Syllabus replaced successfully', syllabus });
   } catch (error) {
     console.error('Error replacing syllabus:', error);
     res.status(500).json({ message: 'Error replacing syllabus', error: error.message });
+  } finally {
+    await cleanupTempFile(file?.path);
   }
 };
 

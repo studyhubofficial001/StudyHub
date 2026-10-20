@@ -1,12 +1,29 @@
 const Subject = require('../models/Subjects');
-const { PutObjectCommand, DeleteObjectCommand, ListObjectVersionsCommand } = require("@aws-sdk/client-s3");
+const { DeleteObjectCommand, ListObjectVersionsCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const { s3Client } = require("../config/b2Storage");
+const {
+  s3Client,
+  hashFile,
+  uploadFileToB2,
+  cleanupTempFile,
+  cleanupUploadedObject,
+} = require("../config/b2Storage");
 const Resource = require("../models/Resource");
 const User = require('../models/User');
 const AcademicRollout = require('../models/AcademicRollout');
 const sendEmail = require('../utils/sendEmail');
-const crypto = require('crypto');
+const { inngest } = require('../config/inngest');
+
+// Send an event to Inngest. Never throws: a lost 'uploaded' event is repaired by the hourly sweeper.
+const sendIngestEvent = async (event) => {
+  try {
+    await inngest.send(event);
+    return true;
+  } catch (error) {
+    console.error(`Inngest send failed for ${event.name}:`, error.message);
+    return false;
+  }
+};
 
 const escapeHtml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
@@ -432,6 +449,7 @@ const deleteSubject = async (req, res) => {
 };
 
 const uploadResource = async (req, res) => {
+  const file = req.file;
   try {
     const subject = await Subject.findOne({ name: req.body.subject });
     const title = req.body.title.trim();
@@ -456,12 +474,11 @@ const uploadResource = async (req, res) => {
       });
     }
 
-    const file = req.file;
     if (!file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const fileHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
+    const fileHash = await hashFile(file.path);
     const existing = await Resource.findOne({ fileHash });
     if (existing) {
       return res.status(409).json({
@@ -472,28 +489,49 @@ const uploadResource = async (req, res) => {
 
     const fileExtension = file.originalname.split('.').pop();
     const fileKey = `resources/${Date.now()}-${Math.round(Math.random() * 1e9)}.${fileExtension}`;
-    const uploadResponse = await s3Client.send(new PutObjectCommand({
-      Bucket: process.env.B2_BUCKET_NAME,
-      Key: fileKey,
-      Body: file.buffer,
-      ContentType: file.mimetype,
-    }));
-
-    const resource = await Resource.create({
-      title: req.body.title,
-      subject: req.body.subject,
-      year: req.body.year,
-      category: req.body.category,
-      originalName: file.originalname,
-      uploadedBy: req.user._id,
-      fileKey: fileKey,
-      versionId: uploadResponse.VersionId,
-      fileHash: fileHash,
+    const uploadResponse = await uploadFileToB2({
+      filePath: file.path,
+      key: fileKey,
+      contentType: file.mimetype,
     });
+
+    const isPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname);
+
+    let resource;
+    try {
+      resource = await Resource.create({
+        title: req.body.title,
+        subject: req.body.subject,
+        year: req.body.year,
+        category: req.body.category,
+        originalName: file.originalname,
+        uploadedBy: req.user._id,
+        fileKey: fileKey,
+        versionId: uploadResponse.VersionId,
+        fileHash: fileHash,
+        fileSize: file.size,
+        status: isPdf ? 'queued' : 'skipped',
+      });
+    } catch (error) {
+      await cleanupUploadedObject({ key: fileKey, versionId: uploadResponse.VersionId });
+      throw error;
+    }
+
+    // start OCR + embedding automatically (only PDFs are processed)
+    if (isPdf) {
+      await sendIngestEvent({
+        id: `ingest-${resource._id}`,            // the same id twice = Inngest ignores the second event
+        name: 'resource/uploaded',
+        data: { resourceId: String(resource._id) },
+      });
+    }
+
     res.status(201).json({ message: 'Resource uploaded successfully', resource });
   } catch (error) {
     console.error("Error uploading resource:", error);
     res.status(500).json({ message: "Error uploading resource", error: error.message });
+  } finally {
+    await cleanupTempFile(file?.path);
   }
 };
 
@@ -536,12 +574,22 @@ const updateResource = async (req, res) => {
       });
     }
 
+    const metadataChanged =
+      existingResource.subject !== subject.trim() ||
+      existingResource.year !== String(year) ||
+      existingResource.category !== category;
+
     existingResource.title = title.trim();
     existingResource.subject = subject.trim();
     existingResource.year = String(year);
     existingResource.category = category;
 
     await existingResource.save();
+
+    // subject/year/category are also stored on every vector in Qdrant: keep them in sync
+    if (metadataChanged) {
+      await sendIngestEvent({ name: 'resource/updated', data: { resourceId: String(existingResource._id) } });
+    }
 
     res.status(200).json({ message: 'Resource updated successfully', resource: existingResource });
   } catch (error) {
@@ -558,6 +606,9 @@ const deleteResource = async (req, res) => {
     if (!resource) {
       return res.status(404).json({ message: "Resource not found" });
     }
+
+    // tell the ingestion steps to stop writing (if B2 deletion fails below, press delete again)
+    await Resource.updateOne({ _id: id }, { $set: { status: 'deleting' } });
 
     // List ALL versions + delete markers for this specific key
     const versionsResult = await s3Client.send(new ListObjectVersionsCommand({
@@ -584,6 +635,9 @@ const deleteResource = async (req, res) => {
     }
 
     await Resource.findByIdAndDelete(id);
+
+    // cancels a running ingestion and removes this resource's vectors and page texts
+    await sendIngestEvent({ name: 'resource/deleted', data: { resourceId: String(id) } });
 
     res.status(200).json({ message: "Resource deleted successfully" });
   } catch (error) {

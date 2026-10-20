@@ -18,9 +18,7 @@ const UploadResources = () => {
     const {
         user,
         uploadedResources,
-        downloadUrls,
         setUploadedResources,
-        setDownloadUrls,
     } = useAuth();
     const { theme } = useTheme();
     const isDark = theme === "dark";
@@ -74,28 +72,22 @@ const UploadResources = () => {
         };
     }, []);
 
-    const getDownloadUrl = async (resourceId) => {
+    const openResource = async (resourceId) => {
+        const downloadWindow = window.open('about:blank', '_blank');
+        if (!downloadWindow) {
+            window.alert('Allow pop-ups to open resource downloads.');
+            return;
+        }
+
+        downloadWindow.opener = null;
         try {
             const response = await getResourceDownloadUrl(resourceId);
-            setDownloadUrls(prevState => ({
-                ...prevState,
-                [resourceId]: response.data.downloadUrl,
-            }));
-            return response.data.downloadUrl;
+            downloadWindow.location.href = response.data.downloadUrl;
         } catch (error) {
             console.error('Error fetching download URL:', error);
-            showNotification('error', error.response?.data?.message || 'Failed to fetch download URL');
-            return null;
+            downloadWindow.close();
+            showNotification('error', error.response?.data?.message || 'Failed to open resource');
         }
-    };
-
-    const getPdfPreviewUrl = (pdfUrl) => {
-        return pdfUrl || '';
-    };
-
-    const openPdfInNewTab = (pdfUrl) => {
-        if (!pdfUrl) return;
-        window.open(pdfUrl, '_blank', 'noopener,noreferrer');
     };
 
     useEffect(() => {
@@ -119,16 +111,6 @@ const UploadResources = () => {
             const response = await getAdminResources();
             const resources = response.data;
             setUploadedResources(resources);
-
-            const urls = {};
-            await Promise.all(resources.map(async (resource) => {
-                const downloadUrl = await getDownloadUrl(resource._id);
-                if (downloadUrl) {
-                    urls[resource._id] = downloadUrl;
-                }
-            }));
-
-            setDownloadUrls(urls);
         } catch (error) {
             console.error('Error fetching resources:', error);
             showNotification('error', error.response?.data?.message || 'Failed to fetch resources');
@@ -143,11 +125,6 @@ const UploadResources = () => {
         try {
             await deleteAdminResource(resourceId);
             setUploadedResources(uploadedResources.filter(resource => resource._id !== resourceId));
-            setDownloadUrls(prevState => {
-                const newState = { ...prevState };
-                delete newState[resourceId];
-                return newState;
-            });
             showNotification('success', 'Resource deleted successfully!');
         } catch (error) {
             console.error('Error deleting resource:', error);
@@ -247,7 +224,6 @@ const UploadResources = () => {
         setIsSubmitting(false);
     };
 
-    const previewUrl = editingResource ? downloadUrls[editingResource._id] : '';
     const shellTheme = isDark ? 'bg-slate-900 text-slate-100' : 'bg-[rgb(244,247,239)] text-slate-900';
     const panelClass = isDark ? 'border-slate-700 bg-slate-800 text-slate-100' : 'border-gray-200 bg-white text-gray-900';
     const mutedText = isDark ? 'text-slate-300' : 'text-gray-600';
@@ -376,40 +352,16 @@ const UploadResources = () => {
                                 </thead>
                                 <tbody className={`divide-y divide-gray-200 text-[15px] md:text-sm ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-white text-gray-700'}`}>
                                     {uploadedResources.map((resource) => {
-                                        const pdfUrl = downloadUrls[resource._id];
-                                        const previewUrl = getPdfPreviewUrl(pdfUrl);
-
                                         return (
                                             <tr key={resource._id} className="align-top">
                                                 <td className="px-2 py-2 md:px-6 md:py-4">
-                                                    <div className="group relative min-w-0">
-                                                        {pdfUrl ? (
-                                                            <a
-                                                                href={pdfUrl}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="block break-all text-blue-600 hover:text-blue-800 hover:underline"
-                                                            >
-                                                                {resource.title}
-                                                            </a>
-                                                        ) : (
-                                                            <span className="block break-all">{resource.title}</span>
-                                                        )}
-
-                                                        {previewUrl && (
-                                                            <div className={`invisible absolute left-0 top-1/2 z-60 w-[min(88vw,420px)] -translate-y-1/2 rounded-xl border p-2 opacity-0 shadow-2xl transition-all duration-500 group-hover:visible group-hover:opacity-100 md:left-full md:ml-4 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-gray-200 bg-white'}`}>
-                                                                <div className={`overflow-hidden rounded-lg border ${isDark ? 'border-slate-700 bg-slate-900' : 'border-gray-200 bg-white'}`}>
-                                                                    <iframe
-                                                                        src={previewUrl}
-                                                                        title={`${resource.title} preview`}
-                                                                        className="h-155 w-full cursor-pointer border-0"
-                                                                        loading="lazy"
-                                                                        onClick={() => openPdfInNewTab(pdfUrl)}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openResource(resource._id)}
+                                                        className="block break-all text-left text-blue-600 hover:text-blue-800 hover:underline"
+                                                    >
+                                                        {resource.title}
+                                                    </button>
                                                 </td>
                                                 <td className="px-2 py-2 break-all md:px-6 md:py-4">
                                                     {resource.subject}
@@ -456,31 +408,17 @@ const UploadResources = () => {
                                 </button>
                             </div>
 
-                            <div className={`mb-5 overflow-hidden rounded-xl border p-3 ${modalPanel}`}>
-                                <div className="mb-2 flex items-center justify-between">
-                                    <span className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>Document Preview</span>
-                                    {previewUrl && (
-                                        <button
-                                            type="button"
-                                            onClick={() => openPdfInNewTab(previewUrl)}
-                                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                                        >
-                                            Open in new tab
-                                        </button>
-                                    )}
-                                </div>
-                                {previewUrl ? (
-                                    <iframe
-                                        src={previewUrl}
-                                        title={`${editingResource.title} preview`}
-                                        className="h-65ll rounded-lg border-0 sm:h-105"
-                                        loading="lazy"
-                                    />
-                                ) : (
-                                    <div className={`flex h-45 items-center justify-center rounded-lg border border-dashed text-sm ${isDark ? 'border-slate-600 bg-slate-900 text-slate-300' : 'border-gray-300 bg-white text-gray-500'}`}>
-                                        No preview available for this document.
-                                    </div>
-                                )}
+                            <div className={`mb-5 flex items-center justify-between gap-3 rounded-xl border p-3 ${modalPanel}`}>
+                                <span className={`min-w-0 break-all text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
+                                    {editingResource.originalName}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => openResource(editingResource._id)}
+                                    className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800"
+                                >
+                                    Open resource
+                                </button>
                             </div>
 
                             {resourceEditError && (

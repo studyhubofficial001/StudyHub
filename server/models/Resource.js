@@ -35,6 +35,21 @@ const resourceSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  versionId: String,
+  fileSize: Number,                      // bytes: the Python service needs it to read the PDF from B2
+  // ---- written by the Python ingestion service ----
+  status: {
+    type: String,
+    enum: ['queued', 'processing', 'indexed', 'failed', 'duplicate', 'skipped', 'deleting', 'cancelled'],
+    default: 'queued',
+    index: true,
+  },
+  pageCount: Number,
+  pagesDone: { type: Number, default: 0 },
+  failedPages: [Number],                 // pages Gemini could not read
+  ingestError: String,
+  waitingUntil: Date,                    // set while ingestion waits for a rate limit
+  indexedAt: Date,
 }, { timestamps: true });
 
 const Resource = mongoose.model('Resource', resourceSchema);

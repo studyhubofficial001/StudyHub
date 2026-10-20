@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api/axiosInstance';
-import { getAdminResources, getResourceDownloadUrl } from '../api/resourcesApi';
+import { getAdminResources } from '../api/resourcesApi';
 
 export const AuthContext = createContext(null);
 
@@ -8,12 +8,10 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploadedResources, setUploadedResources] = useState([]);
-  const [downloadUrls, setDownloadUrls] = useState({});
 
   const refreshResources = async () => {
     if (!user || user.role !== 'admin') {
       setUploadedResources([]);
-      setDownloadUrls({});
       return;
     }
 
@@ -21,24 +19,11 @@ export const AuthProvider = ({ children }) => {
       const response = await getAdminResources();
       const resources = response.data || [];
       setUploadedResources(resources);
-
-      const urls = {};
-      await Promise.all(resources.map(async (resource) => {
-        try {
-          const downloadUrlResponse = await getResourceDownloadUrl(resource._id);
-          urls[resource._id] = downloadUrlResponse.data.downloadUrl;
-        } catch (error) {
-          console.error(`Error fetching download URL for resource ${resource._id}:`, error);
-        }
-      }));
-
-      setDownloadUrls(urls);
     } catch (error) {
       if (error.response?.status !== 401 && error.response?.status !== 403) {
         console.error('Error fetching resources:', error);
       }
       setUploadedResources([]);
-      setDownloadUrls({});
     }
   };
 
@@ -58,7 +43,6 @@ export const AuthProvider = ({ children }) => {
         }
         setUser(null);
         setUploadedResources([]);
-        setDownloadUrls({});
       } finally {
         setLoading(false);
       }
@@ -81,7 +65,6 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       setUploadedResources([]);
-      setDownloadUrls({});
     }
   };
 
@@ -91,9 +74,7 @@ export const AuthProvider = ({ children }) => {
       setUser,
       isAuthenticated: !!user,
       uploadedResources,
-      downloadUrls,
       setUploadedResources,
-      setDownloadUrls,
       refreshResources,
       loading,
       logout,

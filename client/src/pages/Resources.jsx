@@ -16,7 +16,6 @@ const Resources = () => {
   const location = useLocation();
   const [subjects, setSubjects] = useState([]);
   const [resources, setResources] = useState([]);
-  const [previewUrls, setPreviewUrls] = useState({});
   const initialSubject = new URLSearchParams(location.search).get('subject') || location.state?.selectedSubject || 'all';
   const [selectedFilter, setSelectedFilter] = useState(initialSubject);
   const [loading, setLoading] = useState(false);
@@ -25,7 +24,6 @@ const Resources = () => {
   const mutedText = isDark ? "text-slate-300" : "text-gray-600";
   const filterDefault = isDark ? "border-slate-600 text-slate-200" : "border-gray-400 text-black";
   const resourceCard = isDark ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-white";
-  const previewCard = isDark ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white";
 
   useEffect(() => {
     const fetchSubjects = async () => {
@@ -94,15 +92,6 @@ const Resources = () => {
     }
   };
 
-  const refreshPreviewUrl = async (resourceId) => {
-    try {
-      const downloadUrl = await getFreshDownloadUrl(resourceId);
-      setPreviewUrls((previousUrls) => ({ ...previousUrls, [resourceId]: downloadUrl }));
-    } catch (error) {
-      console.error("Error loading resource preview:", error);
-    }
-  };
-
   return (
     <div className={`flex min-h-screen flex-col md:grid md:h-screen md:min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] md:p-10 md:mb-0 mb-10 ${shellTheme}`}>
       <div className="hidden md:block md:mr-2 md:mb-0 mb-4 md:sticky md:top-10 md:self-start">
@@ -163,8 +152,6 @@ const Resources = () => {
             <p className={mutedText}>No resources available for this year and filter.</p>
           ) : (
             visibleResources.map((resource) => {
-              const previewUrl = previewUrls[resource._id] || '';
-
               return (
                 <div key={resource._id} className={`rounded-xl border p-4 shadow-sm ${resourceCard}`}>
                   <div className="flex items-center justify-between gap-3">
@@ -175,33 +162,13 @@ const Resources = () => {
                         className="h-10 w-10 rounded-md object-cover shadow-sm"
                       />
                       <div className="min-w-0">
-                        <div
-                          className="group relative inline-block max-w-full overflow-hidden"
-                          onMouseEnter={() => refreshPreviewUrl(resource._id)}
+                        <button
+                          type="button"
+                          onClick={() => openResource(resource)}
+                          className="block max-w-full truncate text-left text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
                         >
-                          <button
-                            type="button"
-                            onClick={() => openResource(resource)}
-                            className="block max-w-full truncate text-left text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {resource.title}
-                          </button>
-
-                          {previewUrl && (
-                            <div
-                              className={`invisible absolute left-0 top-0 z-60 w-[min(88vw,420px)] max-w-full overflow-hidden rounded-xl border p-2 opacity-0 shadow-2xl transition-all duration-500 group-hover:visible group-hover:opacity-100 md:left-full md:ml-4 ${previewCard}`}
-                            >
-                              <div className={`overflow-hidden rounded-lg border ${previewCard}`}>
-                                <iframe
-                                  src={previewUrl}
-                                  title={`${resource.title} preview`}
-                                  className="h-105 w-full cursor-pointer border-0 md:h-155"
-                                  loading="lazy"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                          {resource.title}
+                        </button>
                         <p className={mutedText}>
                           {resource.subject} • Year {resource.year} • {resource.category}
                         </p>
