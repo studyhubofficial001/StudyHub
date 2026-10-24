@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import UploadResources from './pages/UploadResources';
 import UploadSyllabus from './pages/UploadSyllabus';
 import Resources from './pages/Resources';
+import PyqCode from './pages/PyqCode';
 import Settings from './pages/Settings';
 import AskAIPage from './pages/AskAIPage';
 
@@ -47,6 +48,7 @@ function App() {
 
       <Route element={<RouteGuard access="complete" />}>
         <Route path="/resources" element={<Resources />} />
+        <Route path="/pyq-code" element={<PyqCode />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

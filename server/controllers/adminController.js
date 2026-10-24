@@ -25,6 +25,9 @@ const sendIngestEvent = async (event) => {
   }
 };
 
+const isSupportedCodeFile = (fileName) =>
+  /\.(c|cc|cpp|cxx|h|pdf|hh|hpp|hxx|py|java|js|jsx|ts|tsx|cs|go|rs|php|rb|swift|kt|kts|sql|sh|html|css|zip)$/i.test(fileName);
+
 const escapeHtml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -451,8 +454,16 @@ const deleteSubject = async (req, res) => {
 const uploadResource = async (req, res) => {
   const file = req.file;
   try {
+    const resourceType = req.body.resourceType || 'resource';
+    if (!['resource', 'pyq', 'code'].includes(resourceType)) {
+      return res.status(400).json({ message: 'Invalid resource type' });
+    }
+
     const subject = await Subject.findOne({ name: req.body.subject });
-    const title = req.body.title.trim();
+    const title = req.body.title?.trim();
+    if (!title) {
+      return res.status(400).json({ message: 'Resource title is required' });
+    }
     const existingResource = await Resource.findOne({
       title,
       subject: req.body.subject,
@@ -476,6 +487,12 @@ const uploadResource = async (req, res) => {
 
     if (!file) {
       return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    if (resourceType === 'code' && !isSupportedCodeFile(file.originalname)) {
+      return res.status(400).json({
+        message: 'Code uploads must use a supported source-code file extension or .zip archive',
+      });
     }
 
     const fileHash = await hashFile(file.path);
@@ -504,6 +521,7 @@ const uploadResource = async (req, res) => {
         subject: req.body.subject,
         year: req.body.year,
         category: req.body.category,
+        resourceType,
         originalName: file.originalname,
         uploadedBy: req.user._id,
         fileKey: fileKey,
@@ -549,6 +567,16 @@ const updateResource = async (req, res) => {
       return res.status(404).json({ message: 'Resource not found' });
     }
 
+    const resourceType = req.body.resourceType || existingResource.resourceType || 'resource';
+    if (!['resource', 'pyq', 'code'].includes(resourceType)) {
+      return res.status(400).json({ message: 'Invalid resource type' });
+    }
+    if (resourceType === 'code' && !isSupportedCodeFile(existingResource.originalName)) {
+      return res.status(400).json({
+        message: 'Code files must use a supported source-code file extension or .zip archive',
+      });
+    }
+
     const matchingSubject = await Subject.findOne({ name: subject.trim() });
     if (!matchingSubject) {
       return res.status(400).json({ message: 'Selected subject does not exist' });
@@ -583,6 +611,7 @@ const updateResource = async (req, res) => {
     existingResource.subject = subject.trim();
     existingResource.year = String(year);
     existingResource.category = category;
+    existingResource.resourceType = resourceType;
 
     await existingResource.save();
 

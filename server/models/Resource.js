@@ -17,6 +17,12 @@ const resourceSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  resourceType: {
+    type: String,
+    enum: ['resource', 'pyq', 'code'],
+    default: 'resource',
+    index: true,
+  },
   fileKey: {
     type: String,
     required: true,

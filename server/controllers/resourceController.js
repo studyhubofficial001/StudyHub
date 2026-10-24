@@ -1,5 +1,6 @@
 const { s3Client } = require("../config/b2Storage");
 const Resource = require("../models/Resource");
+const Subject = require("../models/Subjects");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const crypto = require("node:crypto");
@@ -97,7 +98,10 @@ const getResourcesForUser = async (req, res) => {
             return res.status(403).json({ message: "User year is required to access resources" });
         }
 
-        const resources = await Resource.find({ year: String(req.user.year) }).sort({ createdAt: -1 });
+        const resources = await Resource.find({
+            year: String(req.user.year),
+            resourceType: { $nin: ['pyq', 'code'] },
+        }).sort({ createdAt: -1 });
 
         if (!resources.length) {
             return res.status(404).json({ message: "No resources found for your year" });
@@ -110,4 +114,82 @@ const getResourcesForUser = async (req, res) => {
     }
 };
 
-module.exports = { getResourceDownloadUrl, getUserResourceDownloadUrl, getResourcesForUser };
+const getUserPyqCodeResources = async (req, res) => {
+    try {
+        if (!req.user || !req.user.year) {
+            return res.status(403).json({ message: "User year is required to access resources" });
+        }
+
+        const subjects = await Subject.find({ year: Number(req.user.year) }).select("name");
+        const subjectNames = subjects.map((subject) => subject.name);
+        if (!subjectNames.length) {
+            return res.status(200).json([]);
+        }
+
+        const resources = await Resource.find({
+            year: String(req.user.year),
+            subject: { $in: subjectNames },
+            resourceType: { $in: ['pyq', 'code'] },
+        }).sort({ createdAt: -1 });
+
+        return res.status(200).json(resources);
+    } catch (error) {
+        console.error("Error fetching PYQ and code resources:", error);
+        return res.status(500).json({ message: "Error fetching PYQ and code resources", error: error.message });
+    }
+};
+
+const getUserPyqCodeResourceDownloadUrl = async (req, res) => {
+    try {
+        if (!req.user || !req.user.year) {
+            return res.status(403).json({ message: "User year is required to access resources" });
+        }
+
+        const resource = await Resource.findOne({
+            _id: req.params.resourceId,
+            year: String(req.user.year),
+            resourceType: { $in: ['pyq', 'code'] },
+        });
+        if (!resource) {
+            return res.status(404).json({ message: "Resource not found" });
+        }
+
+        const subjectExists = await Subject.exists({
+            name: resource.subject,
+            year: Number(req.user.year),
+        });
+        if (!subjectExists) {
+            return res.status(404).json({ message: "Resource not found" });
+        }
+
+        if (canUseCache(resource)) {
+            return res.status(200).json({
+                originalName: resource.originalName,
+                downloadUrl: makeCachedLink(resource.fileKey),
+            });
+        }
+
+        const command = new GetObjectCommand({
+            Bucket: process.env.B2_BUCKET_NAME,
+            Key: resource.fileKey,
+        });
+        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+        return res.status(200).json({
+            originalName: resource.originalName,
+            downloadUrl: signedUrl,
+            expiresInMinutes: 60,
+        });
+    } catch (error) {
+        console.error("Error generating PYQ or code download URL:", error);
+        return res.status(500).json({ message: "Error generating download URL", error: error.message });
+    }
+};
+
+module.exports = {
+    getResourceDownloadUrl,
+    getUserResourceDownloadUrl,
+    getResourcesForUser,
+    getUserPyqCodeResources,
+    getUserPyqCodeResourceDownloadUrl,
+};

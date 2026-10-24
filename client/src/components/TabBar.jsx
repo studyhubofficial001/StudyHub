@@ -1,4 +1,4 @@
-import { House, NotepadText, Settings, Bot, UserRoundGroup, UserStar } from "lucide-react";
+import { House, NotepadText, Settings, Bot, UserRoundGroup, UserStar, FileCode2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -21,6 +21,10 @@ const TabBar = () => {
         <Link to="/resources" className={`flex cursor-pointer flex-col items-center justify-center gap-1 p-2 text-[10px] transition-colors ${tabClass}`}>
           <NotepadText size={22} />
           <span>Resources</span>
+        </Link>
+        <Link to="/pyq-code" className={`flex cursor-pointer flex-col items-center justify-center gap-1 p-2 text-[10px] transition-colors ${tabClass}`}>
+          <FileCode2 size={22} />
+          <span>PYQs &amp; Code</span>
         </Link>
         {/* <Link to="/chat" className={`flex cursor-pointer flex-col items-center justify-center gap-1 p-2 text-[10px] transition-colors ${tabClass}`}>
           <UserRoundGroup size={22} />

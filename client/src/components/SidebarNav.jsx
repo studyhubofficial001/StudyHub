@@ -35,6 +35,9 @@ const SidebarNav = () => {
             <Link to="/resources">Resources</Link>
           </li>
           <li className={`cursor-pointer rounded-xl p-2 text-xl transition-colors md:p-3 ${navLinkClass}`}>
+            <Link to="/pyq-code">PYQs &amp; Code</Link>
+          </li>
+          <li className={`cursor-pointer rounded-xl p-2 text-xl transition-colors md:p-3 ${navLinkClass}`}>
             <Link to="/ask-ai">Ask AI</Link>
           </li>
           {/* <li className={`cursor-pointer rounded-xl p-2 text-xl transition-colors md:p-3 ${navLinkClass}`}>

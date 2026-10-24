@@ -11,3 +11,5 @@ export const deleteAdminResource = (id) => api.delete(`/admin/resources/${id}`);
 export const getResourceDownloadUrl = (resourceId) => api.get(`/admin/resources/${resourceId}/download`);
 export const getUserResources = () => api.get('/resources');
 export const getUserResourceDownloadUrl = (resourceId) => api.get(`/resources/${resourceId}/download`);
+export const getUserPyqCodeResources = () => api.get('/resources/pyq-code');
+export const getUserPyqCodeResourceDownloadUrl = (resourceId) => api.get(`/resources/pyq-code/${resourceId}/download`);

@@ -34,6 +34,7 @@ const UploadResources = () => {
         subject: '',
         year: '',
         category: '',
+        resourceType: 'resource',
     });
     const [resourceEditError, setResourceEditError] = useState('');
     const [isUpdatingResource, setIsUpdatingResource] = useState(false);
@@ -141,6 +142,7 @@ const UploadResources = () => {
             subject: resource.subject || '',
             year: String(resource.year || subjectMatch?.year || ''),
             category: resource.category || subjectMatch?.category || '',
+            resourceType: resource.resourceType || 'resource',
         });
         setResourceEditError('');
     };
@@ -197,7 +199,7 @@ const UploadResources = () => {
                 )
             );
             setEditingResource(null);
-            setResourceEditForm({ title: '', subject: '', year: '', category: '' });
+            setResourceEditForm({ title: '', subject: '', year: '', category: '', resourceType: 'resource' });
             showNotification('success', 'Resource updated successfully!');
         } catch (error) {
             console.error('Error updating resource:', error);
@@ -316,9 +318,19 @@ const UploadResources = () => {
                                 ))}
                             </select>
                         </div>
+                        <div className="mt-4 md:mt-0">
+                            <label htmlFor="resourceType" className={`block text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
+                                File Type
+                            </label>
+                            <select id="resourceType" name="resourceType" defaultValue="resource" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`}>
+                                <option value="resource">Study resource</option>
+                                <option value="pyq">Previous year question paper (PYQ)</option>
+                                <option value="code">Code file</option>
+                            </select>
+                        </div>
                         <div>
                             <label htmlFor="resourceFile" className={`mt-4 block text-sm font-medium md:mt-0 ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
-                                Upload Resource File
+                                Upload File
                             </label>
                                             <input type="file" id="file" name="file" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} />
                         </div>
@@ -346,6 +358,9 @@ const UploadResources = () => {
                                             Year
                                         </th>
                                         <th className="px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
+                                            File Type
+                                        </th>
+                                        <th className="px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
                                             Actions
                                         </th>
                                     </tr>
@@ -368,6 +383,9 @@ const UploadResources = () => {
                                                 </td>
                                                 <td className="px-2 py-2 break-all md:px-6 md:py-4">
                                                     {resource.year}
+                                                </td>
+                                                <td className="px-2 py-2 md:px-6 md:py-4">
+                                                    {resource.resourceType === 'pyq' ? 'PYQ' : resource.resourceType === 'code' ? 'Code' : 'Study resource'}
                                                 </td>
                                                 <td className="px-2 py-2 md:px-6 md:py-4">
                                                     <div className="flex flex-wrap items-center gap-2 md:gap-5">
@@ -496,6 +514,22 @@ const UploadResources = () => {
                                                     {category}
                                                 </option>
                                             ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex flex-col md:col-span-2">
+                                        <label htmlFor="editResourceType" className={`mb-1 text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>File Type</label>
+                                        <select
+                                            id="editResourceType"
+                                            name="resourceType"
+                                            value={resourceEditForm.resourceType}
+                                            onChange={handleResourceEditChange}
+                                            className={`rounded-lg border p-3 focus:outline-none ${modalField}`}
+                                            required
+                                        >
+                                            <option value="resource">Study resource</option>
+                                            <option value="pyq">Previous year question paper (PYQ)</option>
+                                            <option value="code">Code file</option>
                                         </select>
                                     </div>
                                 </div>
