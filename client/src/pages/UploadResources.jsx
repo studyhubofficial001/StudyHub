@@ -334,7 +334,7 @@ const UploadResources = () => {
                             </label>
                                             <input type="file" id="file" name="file" className={`mt-1 block w-full rounded-md p-2 shadow-sm ${inputClass}`} />
                         </div>
-                        <div className="mt-6 flex justify-center">
+                        <div className="mt-6 flex justify-center md:col-span-3">
                             <button type="submit" className="w-full cursor-pointer rounded-md bg-slate-800 px-6 py-2 text-white transition-colors duration-200 hover:bg-slate-700 md:w-50">
                                 {isSubmitting ? 'Uploading...' : 'Upload'}
                             </button>

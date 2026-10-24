@@ -298,7 +298,7 @@ const Settings = () => {
 
             <div className={`rounded-2xl border p-5 shadow-sm ${navPanelTheme}`}>
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-xl font-semibold">College email</h2>
+                <h2 className="text-xl font-semibold">Change email</h2>
               </div>
               <p className={`mb-4 text-sm ${mutedText}`}>
                 {user?.email || 'riya.sharma@college.edu'} — changing this requires OTP verification.
