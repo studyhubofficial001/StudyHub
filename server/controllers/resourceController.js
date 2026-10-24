@@ -28,6 +28,15 @@ const getResourceDownloadUrl = async (req, res) => {
         if (!resource) {
             return res.status(404).json({ message: "Resource not found" }); 
         }
+        // Small file: give the cached Vercel link (same link the students get)
+        if (canUseCache(resource)) {
+            return res.status(200).json({
+                originalName: resource.originalName,
+                downloadUrl: makeCachedLink(resource.fileKey),
+            }); 
+        }
+
+        // Big file: straight from B2 with a temporary link
         const command = new GetObjectCommand({ 
             Bucket: process.env.B2_BUCKET_NAME,
             Key: resource.fileKey,

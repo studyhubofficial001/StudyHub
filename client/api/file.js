@@ -1,6 +1,7 @@
 // client/api/file.js   (this file must be in the "api" folder at the ROOT of the client project)
 import crypto from "node:crypto";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const MAX_BYTES = 4 * 1024 * 1024; // Vercel cannot send bigger responses than ~4.5 MB
 
@@ -39,9 +40,20 @@ export default async function handler(req, res) {
       new GetObjectCommand({ Bucket: process.env.BUCKET, Key: key })
     );
 
+    // FALLBACK: too big for Vercel -> send the user straight to B2
     if (obj.ContentLength > MAX_BYTES) {
       obj.Body.destroy?.();
-      return res.status(413).send("File too large for this route");
+      const url = await getSignedUrl(
+        s3,
+        new GetObjectCommand({
+          Bucket: process.env.BUCKET,
+          Key: key,
+          ResponseContentType: obj.ContentType || "application/pdf",
+        }),
+        { expiresIn: 600 }
+      );
+      res.setHeader("Cache-Control", "no-store"); // never cache this temporary link
+      return res.redirect(302, url);
     }
 
     const bytes = await obj.Body.transformToByteArray();
@@ -58,4 +70,4 @@ export default async function handler(req, res) {
     console.error(err);
     return res.status(500).send("Server error");
   }
-} 
+}
