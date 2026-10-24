@@ -1,4 +1,5 @@
 import React from 'react'
+import bookImage from '../assets/book.jpeg'
 
 const SideTemplate = () => {
   return (
@@ -11,7 +12,7 @@ const SideTemplate = () => {
             One place for your year's notes, past papers, group discussion and instant answers from every PDF you upload.
           </p>
           <div className="md:pt-20">
-          <img src="../src/assets/book.jpeg" alt="book" className="md:w-full md:h-50/60 opacity-70 select-none" />
+          <img src={bookImage} alt="book" className="h-auto w-full max-h-[60vh] object-contain opacity-70 select-none" />
           </div>
         </div>
     </div>
