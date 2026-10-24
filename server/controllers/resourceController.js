@@ -2,6 +2,24 @@ const { s3Client } = require("../config/b2Storage");
 const Resource = require("../models/Resource");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const crypto = require("node:crypto");
+
+// Files up to this size are served through the Vercel cache (Vercel can't send bigger ones)
+const CACHEABLE_MAX_BYTES = 4 * 1024 * 1024;
+
+// Same link for every user => Vercel keeps one cached copy => B2 is touched only once
+const makeCachedLink = (fileKey) => {
+    const sig = crypto
+        .createHmac("sha256", process.env.FILE_LINK_SECRET)
+        .update(fileKey)
+        .digest("hex");
+    return `${process.env.FILE_BASE_URL}/api/file?key=${encodeURIComponent(fileKey)}&sig=${sig}`;
+};
+
+const canUseCache = (resource) =>
+    Boolean(process.env.FILE_LINK_SECRET && process.env.FILE_BASE_URL) &&
+    resource.fileSize > 0 &&
+    resource.fileSize <= CACHEABLE_MAX_BYTES;
 
 const getResourceDownloadUrl = async (req, res) => {
     try {
@@ -38,6 +56,15 @@ const getUserResourceDownloadUrl = async (req, res) => {
             return res.status(404).json({ message: "Resource not found" });
         }
 
+        // Small file: give the cached Vercel link (same URL for everybody)
+        if (canUseCache(resource)) {
+            return res.status(200).json({
+                originalName: resource.originalName,
+                downloadUrl: makeCachedLink(resource.fileKey),
+            });
+        }
+
+        // Big file: straight from B2 with a temporary link (as before)
         const command = new GetObjectCommand({
             Bucket: process.env.B2_BUCKET_NAME,
             Key: resource.fileKey,
