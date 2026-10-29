@@ -13,6 +13,7 @@ const User = require('../models/User');
 const AcademicRollout = require('../models/AcademicRollout');
 const sendEmail = require('../utils/sendEmail');
 const { inngest } = require('../config/inngest');
+const { deleteResourceVectors, deleteResourcePageTexts } = require('../config/qdrant');
 
 // Send an event to Inngest. Never throws: a lost 'uploaded' event is repaired by the hourly sweeper.
 const sendIngestEvent = async (event) => {
@@ -646,11 +647,11 @@ const deleteResource = async (req, res) => {
       MaxKeys: 1000,
     }));
 
-    // Combine actual versions AND delete markers
+    // Combine actual versions AND delete markers (only this exact file, never a key that merely starts with it)
     const allVersions = [
       ...(versionsResult.Versions || []),
       ...(versionsResult.DeleteMarkers || []),
-    ];
+    ].filter((v) => v.Key === resource.fileKey);
 
     console.log(`Found ${allVersions.length} version(s) to delete for: ${resource.fileKey}`);
 
@@ -663,12 +664,23 @@ const deleteResource = async (req, res) => {
       }));
     }
 
+    // 2) Qdrant vectors + 3) MongoDB page texts (the OCR text). If one fails we stop here with an error,
+    //    the status stays 'deleting' and pressing delete again repeats these (they are safe to repeat).
+    await deleteResourceVectors(id);
+    const pageTextsRemoved = await deleteResourcePageTexts(id);
+
+    // 4) the resource itself
     await Resource.findByIdAndDelete(id);
 
-    // cancels a running ingestion and removes this resource's vectors and page texts
-    await sendIngestEvent({ name: 'resource/deleted', data: { resourceId: String(id) } });
+    // Backup: cancels a running ingestion, repeats the cleanup after 90 s (a step that was already
+    // running may still write) and starts the next file in the queue.
+    const eventSent = await sendIngestEvent({ name: 'resource/deleted', data: { resourceId: String(id) } });
 
-    res.status(200).json({ message: "Resource deleted successfully" });
+    res.status(200).json({
+      message: "Resource deleted successfully",
+      removed: { b2Versions: allVersions.length, pageTexts: pageTextsRemoved, vectors: true },
+      lateCleanupScheduled: eventSent,
+    });
   } catch (error) {
     console.error("Error deleting resource:", error);
     res.status(500).json({ message: "Error deleting resource", error: error.message });
