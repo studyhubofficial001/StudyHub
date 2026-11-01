@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import SidebarNav from "../components/SidebarNav";
 import MobileNav from "../components/MobileNav";
 import TabBar from "../components/TabBar";
+import IngestionMonitor from "../components/IngestionMonitor";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useState, useEffect, useRef } from "react";
@@ -341,6 +342,7 @@ const UploadResources = () => {
                         </div>
                     </form>
                 </div>
+                <IngestionMonitor isDark={isDark} />
                 {uploadedResources.length > 0 && (
                     <div className={`relative mt-4 flex w-full max-w-full flex-col overflow-hidden rounded-lg border p-4 ${panelClass}`}>
                         <h2 className={`mb-4 text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Uploaded Resources</h2>
