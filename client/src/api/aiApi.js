@@ -2,7 +2,7 @@
 //
 // IMPORTANT: API_BASE must be the same address your other api files (e.g. subjectsApi.js) use.
 // If your login token is kept somewhere other than localStorage "token", change authHeaders().
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+const API_BASE = import.meta.env.VITE_API_URL.replace(/\/$/, '');
 
 const authHeaders = () => {
   try {
