@@ -1,12 +1,13 @@
 // Talks to the Express server: chat history + the streaming answer.
 //
 // IMPORTANT: API_BASE must be the same address your other api files (e.g. subjectsApi.js) use.
-// If your login token is kept somewhere other than localStorage "token", change authHeaders().
+import { getAuthToken } from './authTokenStorage';
+
 const API_BASE = import.meta.env.VITE_API_URL.replace(/\/$/, '');
 
 const authHeaders = () => {
   try {
-    const token = localStorage.getItem('token');
+    const token = getAuthToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   } catch {
     return {};
