@@ -1,31 +1,26 @@
-# One container = Node (public) + Python AI service (private, 127.0.0.1:8000)
-FROM node:20-bookworm-slim
+# One Render service that runs Express (public) + the AI service (private, 127.0.0.1:8000).
+# Expected repo layout:  server/  ai_service/  Dockerfile  start.sh
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    NODE_ENV=production \
-    PDF_CACHE_DIR=/tmp/pdf-cache
+# ---- stage 1: install Node dependencies (npm is not needed in the final image)
+FROM node:22-slim AS node_deps
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm ci --omit=dev
+COPY server/ ./
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
+# ---- stage 2: Python image that also carries the node binary
+FROM python:3.13-slim
 WORKDIR /app
+COPY --from=node_deps /usr/local/bin/node /usr/local/bin/node
 
-# 1) Node dependencies (cached layer)
-COPY server/package.json server/package-lock.json ./server/
-RUN cd server && npm ci --omit=dev
+COPY ai_service/requirements.txt ai_service/requirements.txt
+RUN pip install --no-cache-dir -r ai_service/requirements.txt
 
-# 2) Python dependencies (cached layer)
-COPY ai-service/requirements.txt ./ai-service/requirements.txt
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install -r ai-service/requirements.txt
+COPY ai_service/ ai_service/
+COPY --from=node_deps /app/server server/
+COPY start.sh .
 
-# 3) Your code
-COPY server ./server
-COPY ai-service ./ai-service
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
-# Render sets PORT (Node listens on it). Python always uses 127.0.0.1:8000 (not reachable from outside).
-CMD ["/app/start.sh"]
+ENV PYTHONUNBUFFERED=1 \
+    NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=180
+CMD ["bash", "start.sh"]

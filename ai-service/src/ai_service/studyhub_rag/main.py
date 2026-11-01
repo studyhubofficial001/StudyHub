@@ -52,7 +52,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
             yield sse("sources", build_sources(plan.docs))
             yield sse("status", {"stage": "writing"})
             async for piece in chain.stream_answer(plan):
-                yield sse("answer", {"text": piece})
+                yield sse("token", {"text": piece})
             yield sse("done", {"message": "streaming complete"})
         except asyncio.CancelledError:
             raise

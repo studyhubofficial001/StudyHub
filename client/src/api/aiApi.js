@@ -1,4 +1,3 @@
-// src/api/aiApi.js
 // Talks to the Express server: chat history + the streaming answer.
 //
 // IMPORTANT: API_BASE must be the same address your other api files (e.g. subjectsApi.js) use.
@@ -27,6 +26,8 @@ async function request(path, options = {}) {
 
 export const listChats = (query = '') =>
   request(`/ai/chats${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+
+export const getChatStats = () => request('/ai/chats/stats');
 
 export const getChat = (chatId) => request(`/ai/chats/${chatId}`);
 

@@ -1,4 +1,3 @@
-// client/api/file.js   (this file must be in the "api" folder at the ROOT of the client project)
 import crypto from "node:crypto";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";

@@ -7,6 +7,7 @@ import TabBar from "../components/TabBar";
 import { getUserSubjects } from "../api/subjectsApi";
 import { getUserResources } from "../api/resourcesApi";
 import { getCurrentSyllabusDownloadUrl } from "../api/syllabusApi";
+import { getChatStats } from "../api/aiApi";
 import { useTheme } from "../context/ThemeContext";
 
 const Dashboard = () => {
@@ -14,6 +15,7 @@ const Dashboard = () => {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const [subjects, setSubjects] = useState([]);
+  const [chatStats, setChatStats] = useState(null);
   const [syllabusName, setSyllabusName] = useState("Global Syllabus");
   const navigate = useNavigate();
   const [totalResources, setTotalResources] = useState(0);
@@ -54,9 +56,18 @@ const Dashboard = () => {
       }
     };
 
+    const fetchChatStats = async () => {
+      try {
+        setChatStats(await getChatStats());
+      } catch (error) {
+        console.error("Error fetching dashboard chat stats:", error);
+      }
+    };
+
     fetchSubjects();
     fetchResources();
     fetchSyllabus();
+    fetchChatStats();
 
     return () => clearInterval(interval);
   }, []);
@@ -78,6 +89,13 @@ const Dashboard = () => {
   const chipClass = isDark ? "border-slate-600 text-slate-200 hover:bg-slate-700" : "border-gray-400 text-gray-700 hover:bg-gray-800 hover:text-white";
   const subjectCard = isDark ? "border-slate-700 bg-slate-600 hover:bg-slate-800/80" : "border-gray-500 bg-white hover:bg-gray-100";
   const subjectBadge = isDark ? "bg-slate-700 text-slate-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200";
+  const subjectIds = new Set(subjects.map((subject) => String(subject._id)));
+  const exploredSubjects = new Set(
+    (chatStats?.exploredSubjectIds || []).filter((id) => subjectIds.has(String(id))).map(String)
+  ).size;
+  const syllabusCoverage = subjects.length
+    ? Math.round((exploredSubjects / subjects.length) * 100)
+    : null;
 
   const handleOpenSyllabus = async () => {
     try {
@@ -126,12 +144,18 @@ const Dashboard = () => {
             <p className={`px-5 text-sm ${mutedText}`}>Resources you can access</p>
           </div>
           <div className={`col-span-3 p-2 row-span-3 rounded-lg border md:col-span-1 md:h-20 ${statCard}`}>
-            <h1 className="px-5 pt-2 font-serif text-xl md:pt-3 md:text-2xl">37</h1>
+            <h1 className="px-5 pt-2 font-serif text-xl md:pt-3 md:text-2xl">
+              {chatStats ? chatStats.questionsAsked : "—"}
+            </h1>
             <p className={`px-5 text-sm ${mutedText}`}>Questions asked to RAG</p>
           </div>
           <div className={`col-span-3 p-2 row-span-3 rounded-lg border md:col-span-1 md:h-20 ${statCard}`}>
-            <h1 className="px-5 pt-2 font-serif text-xl md:pt-3 md:text-2xl">78%</h1>
-            <p className={`px-5 text-sm ${mutedText}`}>Syllabus covered — Units 1-3</p>
+            <h1 className="px-5 pt-2 font-serif text-xl md:pt-3 md:text-2xl">
+              {syllabusCoverage === null ? "—" : `${syllabusCoverage}%`}
+            </h1>
+            <p className={`px-5 text-sm ${mutedText}`}>
+              Subjects explored via RAG — {exploredSubjects} of {subjects.length}
+            </p>
           </div>
         </div>
 

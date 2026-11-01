@@ -44,9 +44,17 @@ class OpenRouterEmbeddings(Embeddings):
                 continue
             rows = sorted(body["data"],key=lambda r: r.get("index",0))
             vectors = [r["embedding"] for r in rows]
-            if len(vectors) != settings.embed_dimensions:
+            if len(vectors) != len(texts):
                 raise RuntimeError(
-                    f"model returned {len(vectors[0])} numbers per vector, "
+                    f"model returned {len(vectors)} vectors for {len(texts)} inputs"
+                )
+            invalid_dimensions = [
+                len(vector) for vector in vectors
+                if len(vector) != settings.embed_dimensions
+            ]
+            if invalid_dimensions:
+                raise RuntimeError(
+                    f"model returned {invalid_dimensions[0]} numbers per vector, "
                     f"expected {settings.embed_dimensions} (set EMBED_DIMENSIONS / EMBED_MODEL)"
                 )
             self._key_idx = idx

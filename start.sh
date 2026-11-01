@@ -1,17 +1,13 @@
 #!/bin/bash
-# Starts both programs. If one dies, the container stops so Render restarts it.
+# Starts both processes in one container. If either one dies, the container exits
+# and Render restarts it (better than running half a server).
 
-cd /app/ai-service || exit 1
-/opt/venv/bin/uvicorn studyhub_ingestion.main:app --host 127.0.0.1 --port 8000 --workers 1 &
-PY=$!
+cd /app/ai_service
+uvicorn studyhub_rag.main:app --host 127.0.0.1 --port 8000 --workers 1 &
 
-cd /app/server || exit 1
+cd /app/server
 node index.js &
-NODE=$!
 
-trap 'kill $PY $NODE 2>/dev/null' TERM INT
-
-wait -n                      # returns when the first of the two exits
-echo "A process stopped, shutting the container down"
-kill $PY $NODE 2>/dev/null
+wait -n          # returns as soon as the first process exits
+kill 0 2>/dev/null
 exit 1

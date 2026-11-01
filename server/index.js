@@ -27,6 +27,8 @@ app.use('/users', require('./routes/userRoutes'));
 app.use('/admin', require('./routes/adminRoutes'));
 app.use('/resources', require('./routes/resourceRoutes'));
 app.use('/syllabus', require('./routes/syllabusRoutes'));
+app.use('/api/ai', require('./routes/aiRoutes'));
+app.use('/ai',require('./routes/aiRoutes'))
 
 app.get("/api/ai/ping",async (req, res) => {
   try {
