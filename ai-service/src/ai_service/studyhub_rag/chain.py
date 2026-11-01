@@ -17,6 +17,7 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 
 from studyhub_rag.config import settings
+from studyhub_rag.codefix import looks_like_code, needs_code_pass, repair_prompt
 from studyhub_rag.conversation import clean_history, history_block, rewrite_question
 from studyhub_rag.embeddings import OpenRouterEmbeddings
 from studyhub_rag.formatting import build_sources, format_docs
@@ -121,6 +122,9 @@ class Plan:
     prompt_tokens: int       # estimate, includes the system prompt and all context
     answer_tokens: int       # how long the answer is expected to be
     provider: str            # "groq", "gemini", or "none" when nothing was found
+    code_mode: bool = False  # the notes hold code: write a draft, then fix it with the compiler-style pass
+    context: str = ""        # the context text and question text, kept for that second pass
+    task: str = ""
 
     def meta(self) -> dict:
         return {
@@ -168,7 +172,23 @@ def prepare(
     prompt_tokens = est_tokens("".join(str(m.content) for m in messages))
     provider = choose_provider(prompt_tokens, answer_tokens)
     log.info("route=%s marks=%s questions=%d history=%d prompt~%d answer~%d", provider, marks, len(questions), len(history), prompt_tokens, answer_tokens)
-    return Plan(questions, truncated, marks, docs, messages, prompt_tokens, answer_tokens, provider)
+    code_mode = settings.fix_code and needs_code_pass(" ".join(search_questions), inputs["context"])
+    return Plan(questions, truncated, marks, docs, messages, prompt_tokens, answer_tokens, provider,
+                code_mode, inputs["context"], inputs["question"])
+
+
+# ---------------------------------------------------------------- the second pass for code
+CODE_PASS_EXTRA_TOKENS = 1700   # the reviewer thinks before it writes, and those tokens count against the limit
+
+
+def _repair_request(plan: Plan, draft: str):
+    """(messages, model chain) for the code-fixing pass. The model is chosen by the size of THIS request."""
+    messages = repair_prompt.format_messages(context=plan.context, question=plan.task, draft=draft)
+    tokens = est_tokens("".join(str(m.content) for m in messages))
+    budget = plan.answer_tokens + CODE_PASS_EXTRA_TOKENS
+    provider = choose_provider(tokens, budget)
+    log.info("code pass: route=%s prompt~%d", provider, tokens)
+    return messages, get_llm(provider, budget, settings.code_reasoning_effort) | StrOutputParser()
 
 
 def answer(question: str, filters: dict[str, Any] | None = None, marks: int | None = None) -> dict:
@@ -177,6 +197,12 @@ def answer(question: str, filters: dict[str, Any] | None = None, marks: int | No
     if not plan.docs:
         return {"answer": NO_ANSWER, "docs": [], "sources": [], "provider": plan.provider}
     text = (get_llm(plan.provider, plan.answer_tokens) | StrOutputParser()).invoke(plan.messages)
+    if plan.code_mode and looks_like_code(text):
+        try:
+            messages, repair = _repair_request(plan, text)
+            text = repair.invoke(messages)
+        except Exception:
+            log.warning("code pass failed; returning the draft", exc_info=True)
     return {"answer": text, "docs": plan.docs, "sources": build_sources(plan.docs), "provider": plan.provider}
 
 
@@ -186,6 +212,27 @@ async def stream_answer(plan: Plan) -> AsyncIterator[str]:
         yield NO_ANSWER
         return
     chain = get_llm(plan.provider, plan.answer_tokens) | StrOutputParser()
-    async for piece in chain.astream(plan.messages):
-        if piece:  # reasoning models send empty pieces while they think
-            yield piece
+
+    if not plan.code_mode:
+        async for piece in chain.astream(plan.messages):
+            if piece:  # reasoning models send empty pieces while they think
+                yield piece
+        return
+
+    # The notes contain code: write the answer, then let the reviewer pass fix it, and stream THAT.
+    draft = await chain.ainvoke(plan.messages)
+    if not looks_like_code(draft):
+        yield draft
+        return
+    sent = False
+    try:
+        messages, repair = _repair_request(plan, draft)
+        async for piece in repair.astream(messages):
+            if piece:
+                sent = True
+                yield piece
+    except Exception:
+        log.warning("code pass failed", exc_info=True)
+        if sent:
+            raise            # part of the fixed answer is already on the screen
+        yield draft          # nothing was shown yet: fall back to the draft

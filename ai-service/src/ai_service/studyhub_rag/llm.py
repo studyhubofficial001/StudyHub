@@ -31,7 +31,7 @@ def choose_provider(prompt_tokens: int, answer_tokens: int) -> str:
     return "gemini"
 
 
-def _groq_models(answer_tokens: int) -> list:
+def _groq_models(answer_tokens: int, effort: str | None = None) -> list:
     max_tokens = answer_tokens + GROQ_THINKING_HEADROOM
     models = []
     for model_name in (settings.groq_model, settings.groq_fallback_model):
@@ -41,7 +41,7 @@ def _groq_models(answer_tokens: int) -> list:
                     api_key=key,
                     model=model_name,
                     temperature=0.0,
-                    reasoning_effort=settings.groq_reasoning_effort,
+                    reasoning_effort=effort or settings.groq_reasoning_effort,
                     max_tokens=max_tokens,
                     max_retries=0,  # on a rate limit, switch to the next model at once instead of waiting
                 )
@@ -72,12 +72,12 @@ def _gemini_models(answer_tokens: int) -> list:
 
 
 @lru_cache(maxsize=32)
-def get_llm(provider: str, answer_tokens: int):
+def get_llm(provider: str, answer_tokens: int, effort: str | None = None):
     """The model chain for one provider and one answer size (cached: there are only a few sizes)."""
     if provider == "gemini":
-        models = _gemini_models(answer_tokens) or _groq_models(answer_tokens)
+        models = _gemini_models(answer_tokens) or _groq_models(answer_tokens, effort)
     else:
-        models = _groq_models(answer_tokens) + _gemini_models(answer_tokens)
+        models = _groq_models(answer_tokens, effort) + _gemini_models(answer_tokens)
     return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]
 
 
