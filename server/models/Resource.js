@@ -56,6 +56,9 @@ const resourceSchema = new mongoose.Schema({
   ingestError: String,
   waitingUntil: Date,                    // set while ingestion waits for a rate limit
   indexedAt: Date,
+  stage: String,                         // the current step of ingestion
+  lastError: String,                     // the last error message from ingestion
+  lastErrorAt: Date,                     // when the last error was recorded
 }, { timestamps: true });
 
 const Resource = mongoose.model('Resource', resourceSchema);

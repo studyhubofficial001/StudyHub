@@ -5,10 +5,13 @@ const router = express.Router();
 const { getSubjects, updateSubject, deleteSubject, createSubject, uploadResource, updateResource, deleteResource, getResources, sendFeatureAnnouncementToUsers, advanceStudentsToNextYear, rollbackStudentsYearAdvance } = require('../controllers/adminController');
 const { getResourceDownloadUrl } = require('../controllers/resourceController');
 const { getSyllabi, uploadSyllabus, updateSyllabus, deleteSyllabus, getSyllabusDownloadUrl } = require('../controllers/syllabusController');
+const { getIngestionStatus, retryIngestion } = require('../controllers/ingestionController');
 const { upload } = require('../config/b2Storage');
 
 router.use(protect, requireAdmin);
 
+router.get('/ingestion', getIngestionStatus);
+router.post('/ingestion/:id/retry', retryIngestion);
 router.get('/subjects', getSubjects);
 router.post('/subjects', createSubject);
 router.put('/subjects/:id', updateSubject);

@@ -13,3 +13,5 @@ export const getUserResources = () => api.get('/resources');
 export const getUserResourceDownloadUrl = (resourceId) => api.get(`/resources/${resourceId}/download`);
 export const getUserPyqCodeResources = () => api.get('/resources/pyq-code');
 export const getUserPyqCodeResourceDownloadUrl = (resourceId) => api.get(`/resources/pyq-code/${resourceId}/download`);
+export const getIngestionStatus = () => api.get('/admin/ingestion');
+export const retryIngestion = (id) => api.post(`/admin/ingestion/${id}/retry`);
