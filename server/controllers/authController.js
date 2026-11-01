@@ -6,8 +6,10 @@ const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+const TOKEN_DAYS = 30; // Token expiration in days
+
 const generateToken = (id) => { 
-    return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: `${TOKEN_DAYS}d` });
 }
 
 const generateOTP = () => {
@@ -42,14 +44,13 @@ const getAuthUser = (user) => ({
     isProfileComplete: user.isProfileComplete,
 });
 
-const setAuthCookie = (res, token) => {
-    res.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 24 * 60 * 60 * 1000,
-    });
-}
+     const cookieOptions = () => {
+         const production = process.env.NODE_ENV === 'production';
+         return { httpOnly: true, secure: production, sameSite: production ? 'none' : 'lax', path: '/' };
+     };
+     const setAuthCookie = (res, token) => {
+         res.cookie('token', token, { ...cookieOptions(), maxAge: TOKEN_DAYS * 24 * 60 * 60 * 1000 });
+     };
  
 const registerUser = async (req, res) => {
     const { username, email, password } = req.body;
@@ -663,7 +664,7 @@ const updatePassword = async (req, res) => {
 
 const logoutUser = async (req, res) => {
     try {
-        res.clearCookie('token');
+        res.clearCookie('token', cookieOptions());
         res.status(200).json({ message: 'Logged out successfully' });
     } catch (error) {
         console.error('Error logging out user:', error);

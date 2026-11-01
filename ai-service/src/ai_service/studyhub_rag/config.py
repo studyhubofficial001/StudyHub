@@ -81,6 +81,7 @@ class Settings:
     max_question_chars: int
     max_questions: int  # how many questions one message may contain
     expand_to_pages: bool  # give the model the whole PDF page of each best chunk, not just the chunk
+    rewrite_followups: bool  # turn a follow-up like "what is its output" into a full question before searching
     min_page_score_ratio: float  # a page must score at least this share of the best page's score
     max_context_tokens: int  # upper limit for the context sent to the model
     groq_reasoning_effort: str  # "low", "medium" or "high"
@@ -112,6 +113,7 @@ def load_settings() -> Settings:
         max_question_chars=_int("MAX_QUESTION_CHARS", 2000, 20, 6000),
         max_questions=_int("MAX_QUESTIONS", 5, 1, 10),
         expand_to_pages=_optional("EXPAND_TO_PAGES", "true").lower() not in ("0", "false", "no", "off"),
+        rewrite_followups=_optional("REWRITE_FOLLOWUPS", "true").lower() not in ("0", "false", "no", "off"),
         min_page_score_ratio=float(_optional("MIN_PAGE_SCORE_RATIO", "0.3")),
         max_context_tokens=_int("MAX_CONTEXT_TOKENS", 12000, 1000, 100000),
         groq_reasoning_effort=_optional("GROQ_REASONING_EFFORT", "low").lower(),

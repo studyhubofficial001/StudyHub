@@ -47,7 +47,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
     async def events():
         try:
             yield sse("status", {"stage": "searching"})
-            plan = await asyncio.to_thread(chain.prepare, req.question, req.marks, req.filter_dict())
+            plan = await asyncio.to_thread(chain.prepare, req.question, req.marks, req.filter_dict(), req.history_list())
             yield sse("meta", plan.meta())
             yield sse("sources", build_sources(plan.docs))
             yield sse("status", {"stage": "writing"})

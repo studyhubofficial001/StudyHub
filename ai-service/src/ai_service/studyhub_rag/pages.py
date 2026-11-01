@@ -42,39 +42,110 @@ def _page_key(doc: Document):
     return meta.get("resource_id"), meta.get("page")
 
 
+def _read_page(client: QdrantClient, collection: str, resource_id, page) -> str | None:
+    """The full text of one page (all its chunks, in order, overlap removed). None if it has no text."""
+    records, _ = client.scroll(
+        collection_name=collection,
+        scroll_filter=models.Filter(must=[
+            models.FieldCondition(key="metadata.resource_id", match=models.MatchValue(value=resource_id)),
+            models.FieldCondition(key="metadata.page", match=models.MatchValue(value=page)),
+        ]),
+        limit=MAX_CHUNKS_PER_PAGE,
+        with_payload=True,
+        with_vectors=False,
+    )
+    chunks = []
+    for rec in records:
+        payload = rec.payload or {}
+        text = (payload.get("page_content") or "").strip()
+        index = (payload.get("metadata") or {}).get("chunk_index")
+        if text:
+            chunks.append((index if isinstance(index, (int, float)) else 0, text))
+    if not chunks:
+        return None
+    chunks.sort(key=lambda c: c[0])
+    return _join([c[1] for c in chunks])
+
+
 def _load_page(client: QdrantClient, collection: str, doc: Document) -> Document:
     """All chunks of the page this chunk belongs to, as one Document. Falls back to `doc` itself."""
     resource_id, page = _page_key(doc)
     if resource_id is None or page is None:
         return doc
     try:
-        records, _ = client.scroll(
-            collection_name=collection,
-            scroll_filter=models.Filter(must=[
-                models.FieldCondition(key="metadata.resource_id", match=models.MatchValue(value=resource_id)),
-                models.FieldCondition(key="metadata.page", match=models.MatchValue(value=page)),
-            ]),
-            limit=MAX_CHUNKS_PER_PAGE,
-            with_payload=True,
-            with_vectors=False,
-        )
-        chunks = []
-        for rec in records:
-            payload = rec.payload or {}
-            text = (payload.get("page_content") or "").strip()
-            index = (payload.get("metadata") or {}).get("chunk_index")
-            if text:
-                chunks.append((index if isinstance(index, (int, float)) else 0, text))
-        if not chunks:
-            return doc
-        chunks.sort(key=lambda c: c[0])
-        full = _join([c[1] for c in chunks])
-        if len(full) < len(doc.page_content):  # never return less than we already had
+        full = _read_page(client, collection, resource_id, page)
+        if not full or len(full) < len(doc.page_content):  # never return less than we already had
             return doc
         return Document(page_content=full, metadata=dict(doc.metadata))
     except Exception:
         log.warning("could not read the full page; using the chunk only", exc_info=True)
         return doc
+
+
+# ---------------------------------------------------------------- pages that continue on the next page
+MAX_NEIGHBOUR_PAGES = 2   # how many following pages may be added to finish a cut-off page
+_OPEN_ENDINGS = (",", ":", "(", "-", " and", " or", " the", " of", " to")
+
+
+def _ends_open(text: str) -> bool:
+    """True when the text looks cut off at the bottom of the page: an unclosed { or (, or a line that stops mid-sentence."""
+    if text.count("{") > text.count("}") or text.count("(") > text.count(")"):
+        return True
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    return bool(lines) and lines[-1].lower().endswith(_OPEN_ENDINGS)
+
+
+def _starts_inside(text: str) -> bool:
+    """True when the page begins in the middle of a code block: it closes more { than it opens."""
+    return text.count("}") > text.count("{")
+
+
+def _page_doc(source: Document, page: int, text: str) -> Document:
+    meta = dict(source.metadata or {})
+    meta["page"] = page
+    meta.pop("relevance_score", None)   # a neighbour page was not ranked, it was added to finish another page
+    return Document(page_content=text, metadata=meta)
+
+
+def _add_neighbours(client, collection, kept: list[Document], max_tokens: int) -> list[Document]:
+    """Add the next page when a kept page is cut off at the bottom (a program or list that continues),
+    and the previous page when a kept page starts in the middle of a code block."""
+    have = {_page_key(p): p for p in kept}
+    used = sum(len(p.page_content) * 2 // 7 + 1 for p in kept)
+    extra: list[Document] = []
+
+    def fetch(source: Document, rid, number: int) -> Document | None:
+        nonlocal used
+        if (rid, number) in have or number < 1:
+            return None
+        try:
+            text = _read_page(client, collection, rid, number)
+        except Exception:
+            log.warning("could not read neighbour page %s", number, exc_info=True)
+            return None
+        if not text or used + len(text) * 2 // 7 + 1 > max_tokens:
+            return None
+        doc = _page_doc(source, number, text)
+        have[(rid, number)] = doc
+        extra.append(doc)
+        used += len(text) * 2 // 7 + 1
+        return doc
+
+    for page in list(kept):
+        rid, number = _page_key(page)
+        if rid is None or not isinstance(number, int):
+            continue
+        text, cur = page.page_content, number
+        for _ in range(MAX_NEIGHBOUR_PAGES):                 # forward: finish the program / list
+            if not _ends_open(text):
+                break
+            nxt = have.get((rid, cur + 1)) or fetch(page, rid, cur + 1)
+            if nxt is None:
+                break
+            text, cur = text + "\n" + nxt.page_content, cur + 1
+        if _starts_inside(page.page_content):                # backward: the code started on the page before
+            fetch(page, rid, number - 1)
+    return kept + extra
 
 
 def expand_to_pages(
@@ -116,6 +187,8 @@ def expand_to_pages(
             continue
         kept.append(page)
         used += cost
+
+    kept = _add_neighbours(client, collection, kept, max_tokens)
 
     # Reading order: a page that continues a list must come right after the page it continues.
     first_seen = {}

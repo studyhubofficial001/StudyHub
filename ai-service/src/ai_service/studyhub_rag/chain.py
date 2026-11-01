@@ -17,6 +17,7 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 
 from studyhub_rag.config import settings
+from studyhub_rag.conversation import clean_history, history_block, rewrite_question
 from studyhub_rag.embeddings import OpenRouterEmbeddings
 from studyhub_rag.formatting import build_sources, format_docs
 from studyhub_rag.llm import choose_provider, get_llm
@@ -130,28 +131,43 @@ class Plan:
         }
 
 
-def prepare(question: str, marks: int | None = None, filters: dict[str, Any] | None = None) -> Plan:
+def prepare(
+    question: str,
+    marks: int | None = None,
+    filters: dict[str, Any] | None = None,
+    history: list[dict] | None = None,
+) -> Plan:
     profile = get_profile(marks)
     questions, truncated = split_questions(question)
-    docs = _retrieve_many(questions, filters, marks)
+    history = clean_history(history)
+
+    # A follow-up ("what is its output?") is searched as a full question; the first question of a chat is not changed.
+    search_questions, shown = questions, questions
+    if history and len(questions) == 1 and settings.rewrite_followups:
+        full = rewrite_question(questions[0], history)
+        search_questions = [full]
+        shown = [f"{questions[0]}\n(In full: {full})"] if full != questions[0] else questions
+
+    docs = _retrieve_many(search_questions, filters, marks)
     answer_tokens = profile.tokens * len(questions)
 
     if not docs:
         return Plan(questions, truncated, marks, [], [], 0, answer_tokens, "none")
 
     inputs = {
+        "history": history_block(history),
         "context": format_docs(docs),
-        "question": _task_text(questions),
+        "question": _task_text(shown),
         "length": length_rule(marks, profile.words, f"{profile.pages:g}"),
         "style": profile.style,
     }
     template = prompt
     messages = template.format_messages(**inputs)
 
-    # The system prompt and every chunk are part of the request, so they are counted too.
+    # The system prompt, the history and every chunk are part of the request, so they are counted too.
     prompt_tokens = est_tokens("".join(str(m.content) for m in messages))
     provider = choose_provider(prompt_tokens, answer_tokens)
-    log.info("route=%s marks=%s questions=%d prompt~%d answer~%d", provider, marks, len(questions), prompt_tokens, answer_tokens)
+    log.info("route=%s marks=%s questions=%d history=%d prompt~%d answer~%d", provider, marks, len(questions), len(history), prompt_tokens, answer_tokens)
     return Plan(questions, truncated, marks, docs, messages, prompt_tokens, answer_tokens, provider)
 
 

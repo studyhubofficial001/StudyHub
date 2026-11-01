@@ -1,24 +1,14 @@
 // Talks to the Express server: chat history + the streaming answer.
 //
-// IMPORTANT: API_BASE must be the same address your other api files (e.g. subjectsApi.js) use.
-import { getAuthToken } from './authTokenStorage';
-
-const API_BASE = import.meta.env.VITE_API_URL.replace(/\/$/, '');
-
-const authHeaders = () => {
-  try {
-    const token = getAuthToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
-};
+// API_BASE must be the same address your other api files (e.g. subjectsApi.js) use.
+// Login is the httpOnly cookie, so every request uses credentials: 'include'.
+const API_BASE = (import.meta.env.VITE_API_URL).replace(/\/$/, '');
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include', // sends the login cookie
     ...options,
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(options.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || `Request failed (${response.status})`);
@@ -43,7 +33,7 @@ export async function streamAnswer({ question, subjectId, marks, chatId, signal,
     method: 'POST',
     credentials: 'include',
     signal,
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, subjectId, marks, chatId }),
   });
 

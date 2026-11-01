@@ -91,11 +91,15 @@ exports.chatStream = async (req, res) => {
     options: { subjectId: subject ? String(subject._id) : null, subjectName: subject ? subject.name : null, marks },
   };
   let chat;
+  let history = []; // the last messages of this chat, so a follow-up like "what is its output" can be understood
   const chatId = req.body?.chatId;
   if (chatId) {
     if (!mongoose.isValidObjectId(chatId)) return res.status(400).json({ message: "Invalid chat" });
-    chat = await Chat.findOne({ _id: chatId, user: req.user._id }).select("title");
+    chat = await Chat.findOne({ _id: chatId, user: req.user._id }).select({ title: 1, messages: { $slice: -4 } });
     if (!chat) return res.status(404).json({ message: "Chat not found" });
+    history = (chat.messages || [])
+      .filter((m) => m.text && !m.error)
+      .map((m) => ({ role: m.role, text: m.text.slice(0, m.role === "assistant" ? 6000 : 1500) }));
     const full = await Chat.exists({ _id: chat._id, [`messages.${MAX_MESSAGES_PER_CHAT - 1}`]: { $exists: true } });
     if (full) return res.status(400).json({ message: "This chat is full. Please start a new chat." });
     await Chat.updateOne({ _id: chat._id }, { $push: { messages: userMessage } });
@@ -137,7 +141,7 @@ exports.chatStream = async (req, res) => {
   try {
     upstream = await axios.post(
       `${AI_URL}/chat/stream`,
-      { question, marks, filters },
+      { question, marks, filters, history },
       {
         headers: { "x-internal-key": INTERNAL_KEY },
         responseType: "stream",

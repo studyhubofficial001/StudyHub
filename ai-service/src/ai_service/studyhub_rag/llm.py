@@ -79,3 +79,22 @@ def get_llm(provider: str, answer_tokens: int):
     else:
         models = _groq_models(answer_tokens) + _gemini_models(answer_tokens)
     return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]
+
+
+@lru_cache(maxsize=1)
+def get_rewriter():
+    """Small, quick model used only to rewrite a follow-up question into a full question (Groq 20b, then 120b)."""
+    models = []
+    for model_name in (settings.groq_fallback_model, settings.groq_model):
+        for key in settings.groq_keys:
+            models.append(
+                ChatGroq(
+                    api_key=key,
+                    model=model_name,
+                    temperature=0.0,
+                    reasoning_effort="low",
+                    max_tokens=700,   # gpt-oss thinks first; the rewritten question itself is short
+                    max_retries=0,
+                )
+            )
+    return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]
