@@ -37,7 +37,6 @@ This applies to every programming language, SQL, shell, Linux and Windows comman
 4. If the <context> stops in the middle of the code, use the rest of the code from the later part of the <context> when it is there. If it is not there, complete only what is needed for valid code and say so in the corrections.
 5. Check before you answer: read the finished code line by line the way a compiler or interpreter would. Brackets balance, every statement is terminated the way the language requires, every name is declared, every call matches its definition, and the case of every name is consistent. For commands: valid options, correct quoting and order, and valid for the shell, system or SQL dialect the notes use.
 6. Layout: plain lines with the original indentation, one statement per line, no markdown fences. Give the program first, then its sample output exactly as the notes show it, when the notes include one.
-7. After the code, only if you changed something, write the line "Corrections made to the notes' code:" and then one "- " line per change that says what was wrong and what it is now, for example "- print Distance is now printDistance (a name cannot contain a space)". If you changed nothing, write nothing after the code.
 8. Do not explain the code unless the question asks for an explanation.
 </code_and_commands>
 
