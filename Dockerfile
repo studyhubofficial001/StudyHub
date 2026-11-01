@@ -1,10 +1,14 @@
 # One Render service that runs Express (public) + the AI service (private, 127.0.0.1:8000).
-# Expected repo layout:  server/  ai_service/  Dockerfile  start.sh
+# Repo layout this file expects (build context = repo root):
+#   Dockerfile
+#   start.sh
+#   server/                          (Express)
+#   ai-service/src/ai_service/       (requirements.txt + studyhub_rag/)
 
-# ---- stage 1: install Node dependencies (npm is not needed in the final image)
+# ---- stage 1: install Node dependencies
 FROM node:22-slim AS node_deps
 WORKDIR /app/server
-COPY server/package*.json ./
+COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY server/ ./
 
@@ -13,10 +17,10 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY --from=node_deps /usr/local/bin/node /usr/local/bin/node
 
-COPY ai_service/requirements.txt ai_service/requirements.txt
+COPY ai-service/src/ai_service/requirements.txt ai_service/requirements.txt
 RUN pip install --no-cache-dir -r ai_service/requirements.txt
 
-COPY ai_service/ ai_service/
+COPY ai-service/src/ai_service/ ai_service/
 COPY --from=node_deps /app/server server/
 COPY start.sh .
 
