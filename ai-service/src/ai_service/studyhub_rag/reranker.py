@@ -3,6 +3,8 @@ import httpx
 from langchain_core.callbacks import Callbacks
 from langchain_core.documents import BaseDocumentCompressor,Document
 
+from studyhub_rag.formatting import source_header
+
 _http = httpx.Client(timeout=30)
 
 class CohereReranker(BaseDocumentCompressor):
@@ -20,7 +22,8 @@ class CohereReranker(BaseDocumentCompressor):
             json={
                 "model":self.model,
                 "query":query,
-                "documents":[d.page_content for d in documents],
+                # the title/year line is ranked together with the text, so a query for "2025 paper" can find a 2025 file
+                "documents":[f"{source_header(d.metadata)}\n{d.page_content}" for d in documents],
                 "top_n": min(self.top_n,len(documents)),
             }
         )
