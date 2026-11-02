@@ -8,7 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 const OnboardingPage = () => {
   const nav = useNavigate();
   const [year, setYear] = useState('');
-  const { setUser } = useAuth();
+  const { setUser, logout } = useAuth();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [errorMessage, setErrorMessage] = useState('');
@@ -30,6 +30,11 @@ const OnboardingPage = () => {
       console.error('Error occurred while submitting onboarding data:', error);
       setErrorMessage(error.response?.data?.message || error.message || 'An error occurred during onboarding.');
     }
+  };
+
+  const handleUseDifferentEmail = async () => {
+    await logout();
+    nav('/login', { replace: true });
   };
 
   return (
@@ -60,6 +65,13 @@ const OnboardingPage = () => {
             Continue to Dashboard
           </button>
         </form>
+        <button
+          type="button"
+          onClick={handleUseDifferentEmail}
+          className={`mt-4 text-sm underline ${isDark ? 'text-teal-300 hover:text-teal-200' : 'text-teal-700 hover:text-teal-600'}`}
+        >
+          Use a different email
+        </button>
       </div>
     </div>
   );

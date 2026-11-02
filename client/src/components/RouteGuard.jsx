@@ -22,7 +22,9 @@ const RouteGuard = ({ access }) => {
   }
 
   if (access === 'guest') {
-    return user ? <Navigate to={getUserPath(user)} replace /> : <Outlet />;
+    return user && (!user.isVerified || user.isProfileComplete)
+      ? <Navigate to={getUserPath(user)} replace />
+      : <Outlet />;
   }
 
   if (!user) {
