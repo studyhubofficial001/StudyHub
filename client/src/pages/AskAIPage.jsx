@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Copy,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
   SendHorizontal,
+  SlidersHorizontal,
   Square,
   Trash2,
   X,
@@ -83,6 +85,13 @@ const AskAIPage = () => {
   const [subjectsError, setSubjectsError] = useState('');
   const [copiedIndex, setCopiedIndex] = useState(null);
 
+  // filter bottom sheet: edits are kept as a draft until the student taps Apply
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [draftSubject, setDraftSubject] = useState('all');
+  const [draftMarks, setDraftMarks] = useState('');
+  const [tipOpen, setTipOpen] = useState(true);
+  const textareaRef = useRef(null);
+
   const messagesContainerRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const abortRef = useRef(null);
@@ -140,6 +149,24 @@ const AskAIPage = () => {
     if (!container) return;
     stickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
   };
+
+  // the message box grows with the text (up to about 7 lines), then scrolls
+  useEffect(() => {
+    const box = textareaRef.current;
+    if (!box) return;
+    box.style.height = 'auto';
+    box.style.height = `${Math.min(box.scrollHeight, 168)}px`;
+  }, [input]);
+
+  // Esc closes the filter sheet
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') setSheetOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheetOpen]);
 
   // ---------------------------------------------------------------- styles
   const shellClass = isDark ? 'bg-slate-950 text-slate-100' : 'bg-[#f5f7f3] text-slate-900';
@@ -230,6 +257,18 @@ const AskAIPage = () => {
     }
   };
 
+  const openSheet = () => {
+    setDraftSubject(selectedSubject);
+    setDraftMarks(selectedMarks);
+    setSheetOpen(true);
+  };
+
+  const applyFilters = () => {
+    setSelectedSubject(draftSubject);
+    setSelectedMarks(draftMarks);
+    setSheetOpen(false);
+  };
+
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || streaming) return;
@@ -297,7 +336,6 @@ const AskAIPage = () => {
     }
   };
 
-  const selectedMarksInfo = MARKS_OPTIONS.find((option) => option.value === selectedMarks);
   const groupedChats = groupChats(chats);
   const searching = chatSearch.trim().length > 0;
 
@@ -314,341 +352,399 @@ const AskAIPage = () => {
     </button>
   );
 
+  const subjectLabel = subjects.find((item) => item._id === selectedSubject)?.name || 'All subjects';
+  const marksLabel = selectedMarks ? `${selectedMarks} marks` : 'Any marks';
+  const draftMarksInfo = MARKS_OPTIONS.find((option) => option.value === draftMarks);
+  const sheetPanel = isDark ? 'bg-slate-900 text-slate-100' : 'bg-white text-slate-900';
+  const pillClass = isDark
+    ? 'border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800'
+    : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50';
+
   return (
     <div className={`h-dvh overflow-hidden ${shellClass}`}>
-      <div className="mx-auto box-border h-full max-w-7xl px-2 py-2 sm:px-3 sm:py-4 md:px-6 md:py-6">
-        <div className={`relative flex h-full min-h-0 overflow-hidden rounded-2xl border shadow-[0_24px_60px_rgba(15,23,42,0.12)] sm:rounded-[28px] ${panelClass}`}>
-          {/* phone only: dark layer behind the open chat list; tap it to close */}
-          {sidebarOpen && (
-            <button
-              type="button"
-              aria-label="Close recent chats"
-              onClick={() => setSidebarOpen(false)}
-              className="absolute inset-0 z-20 bg-black/40 sm:hidden"
-            />
-          )}
+      {/* chat fills the whole screen: no outer margin, no card border */}
+      <div className={`relative flex h-full min-h-0 overflow-hidden ${panelClass}`}>
+        {/* phone only: dark layer behind the open chat list; tap it to close */}
+        {sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close recent chats"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute inset-0 z-20 bg-black/40 sm:hidden"
+          />
+        )}
 
-          {/* narrow bar with icons (computer screens, chat list closed) */}
-          {!sidebarOpen && (
-            <aside className={`hidden w-18 shrink-0 flex-col items-center gap-3 border-r px-2 py-4 sm:flex ${isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-50'}`}>
-              {railButton('Open recent chats', () => setSidebarOpen(true), <PanelLeftOpen size={16} />)}
-              {railButton('Search conversations', openSearch, <Search size={16} />)}
-              {railButton('New chat', startNewChat, <Plus size={16} />)}
-            </aside>
-          )}
+        {/* narrow bar with icons (computer screens, chat list closed) */}
+        {!sidebarOpen && (
+          <aside className={`hidden w-16 shrink-0 flex-col items-center gap-3 border-r px-2 py-4 sm:flex ${isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-50'}`}>
+            {railButton('Open recent chats', () => setSidebarOpen(true), <PanelLeftOpen size={16} />)}
+            {railButton('Search conversations', openSearch, <Search size={16} />)}
+            {railButton('New chat', startNewChat, <Plus size={16} />)}
+          </aside>
+        )}
 
-          {/* chat list: slides over the page on phones, sits beside the chat on computers */}
-          <aside
-            aria-hidden={!sidebarOpen}
-            className={`absolute inset-y-0 left-0 z-30 flex w-72 max-w-[85%] flex-col border-r shadow-xl transition-all duration-300 ease-out sm:static sm:z-auto sm:max-w-none sm:shadow-none ${
-              sidebarOpen ? 'visible translate-x-0' : 'invisible -translate-x-full sm:hidden'
-            } ${isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}
-          >
-            <div className={`flex items-center justify-between border-b px-3 py-3 ${dividerClass}`}>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Close recent chats"
-                  onClick={() => setSidebarOpen(false)}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${quickActionClass}`}
-                >
-                  <PanelLeftClose size={14} />
-                </button>
-                <h2 className="text-sm font-semibold sm:text-base">Recent chats</h2>
-              </div>
+        {/* chat list: slides over the page on phones, sits beside the chat on computers */}
+        <aside
+          aria-hidden={!sidebarOpen}
+          className={`absolute inset-y-0 left-0 z-30 flex w-72 max-w-[85%] flex-col border-r shadow-xl transition-all duration-300 ease-out sm:static sm:z-auto sm:max-w-none sm:shadow-none ${
+            sidebarOpen ? 'visible translate-x-0' : 'invisible -translate-x-full sm:hidden'
+          } ${isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}
+        >
+          <div className={`flex items-center justify-between border-b px-3 py-3 ${dividerClass}`}>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                aria-label="New chat"
-                title="New chat"
-                onClick={startNewChat}
+                aria-label="Close recent chats"
+                onClick={() => setSidebarOpen(false)}
                 className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${quickActionClass}`}
               >
-                <Plus size={14} />
+                <PanelLeftClose size={14} />
               </button>
+              <h2 className="text-sm font-semibold sm:text-base">Recent chats</h2>
+            </div>
+            <button
+              type="button"
+              aria-label="New chat"
+              title="New chat"
+              onClick={startNewChat}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${quickActionClass}`}
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+
+          <div className="px-3 pt-3">
+            <div className="relative">
+              <Search size={14} className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${softText}`} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={chatSearch}
+                onChange={(event) => setChatSearch(event.target.value)}
+                placeholder="Search your chats"
+                aria-label="Search your chats"
+                className={`h-9 w-full rounded-xl border pl-9 pr-8 text-xs outline-none focus:border-slate-400 sm:text-sm ${inputClass}`}
+              />
+              {chatSearch && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setChatSearch('')}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 ${softText}`}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
+            {chatsError && <p role="status" className="text-xs text-red-500">{chatsError}</p>}
+
+            {!chatsError && chats.length === 0 && (
+              <p className={`px-1 text-xs ${softText}`}>
+                {searching ? 'No chats match your search.' : 'No chats yet. Ask your first question!'}
+              </p>
+            )}
+
+            {groupedChats.map((group) => (
+              <div key={group.label}>
+                <p className={`mb-1.5 px-1 text-[10px] uppercase tracking-[0.2em] ${softText}`}>{group.label}</p>
+                <ul className="space-y-1">
+                  {group.items.map((chat) => (
+                    <li key={chat._id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => openChat(chat._id)}
+                        className={`block w-full rounded-xl px-3 py-2 pr-9 text-left transition ${
+                          chat._id === chatId
+                            ? isDark ? 'bg-slate-700' : 'bg-slate-200'
+                            : isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="block truncate text-sm font-medium">{chat.title}</span>
+                        {chat.snippet && <span className={`mt-0.5 block truncate text-[11px] ${softText}`}>{chat.snippet}</span>}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete chat ${chat.title}`}
+                        onClick={(event) => handleDeleteChat(event, chat._id)}
+                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 opacity-100 transition hover:text-red-500 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 ${softText}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* slim header: menu, title, new chat, back */}
+          <header className={`flex items-center gap-2 border-b px-2.5 py-2 sm:gap-3 sm:px-4 ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50/80'}`}>
+            <button
+              type="button"
+              aria-label={sidebarOpen ? 'Hide recent chats' : 'Open recent chats'}
+              onClick={() => setSidebarOpen((value) => !value)}
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition sm:hidden ${quickActionClass}`}
+            >
+              {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+            </button>
+
+            <div className="min-w-0 leading-tight">
+              <p className={`text-[8px] uppercase tracking-[0.2em] sm:text-[10px] ${softText}`}>StudyHub AI</p>
+              <h1 className="text-lg font-semibold sm:text-xl">Ask AI</h1>
             </div>
 
-            <div className="px-3 pt-3">
-              <div className="relative">
-                <Search size={14} className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${softText}`} />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={chatSearch}
-                  onChange={(event) => setChatSearch(event.target.value)}
-                  placeholder="Search your chats"
-                  aria-label="Search your chats"
-                  className={`h-9 w-full rounded-xl border pl-9 pr-8 text-xs outline-none focus:border-slate-400 sm:text-sm ${inputClass}`}
-                />
-                {chatSearch && (
+            {/* one pill shows the current filters; tap it to change them */}
+            <button
+              type="button"
+              onClick={openSheet}
+              aria-haspopup="dialog"
+              aria-expanded={sheetOpen}
+              title="Change subject and marks"
+              className={`mx-auto hidden h-9 w-full min-w-0 max-w-sm items-center gap-2 rounded-full border px-3 text-xs transition sm:flex ${pillClass}`}
+            >
+              <SlidersHorizontal size={14} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">{subjectLabel} · {marksLabel}</span>
+              <ChevronDown size={14} className="shrink-0" />
+            </button>
+
+            <button
+              type="button"
+              aria-label="New chat"
+              title="New chat"
+              onClick={startNewChat}
+              className={`ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition sm:hidden ${quickActionClass}`}
+            >
+              <Plus size={16} />
+            </button>
+
+            <Link
+              to="/dashboard"
+              className={`inline-flex shrink-0 items-center gap-1 text-xs font-medium transition sm:gap-2 sm:text-sm ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`}
+            >
+              <ArrowLeft size={14} />
+              <span className="hidden sm:inline">Go back to main</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
+          </header>
+
+          {/* phone: the pill sits on its own row under the header */}
+          <div className={`border-b px-2.5 py-2 sm:hidden ${dividerClass}`}>
+            <button
+              type="button"
+              onClick={openSheet}
+              aria-haspopup="dialog"
+              aria-expanded={sheetOpen}
+              className={`flex h-10 w-full items-center gap-2 rounded-full border px-3 text-xs transition ${pillClass}`}
+            >
+              <SlidersHorizontal size={14} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">{subjectLabel} · {marksLabel}</span>
+              <ChevronDown size={14} className="shrink-0" />
+            </button>
+          </div>
+
+          {subjectsError && (
+            <p role="status" className={`px-4 pt-2 text-xs ${softText}`}>{subjectsError}</p>
+          )}
+
+          {/* messages: the whole middle of the screen */}
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
+            className={`relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${isDark ? 'bg-slate-950/40' : 'bg-[#f9faf8]'}`}
+          >
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-2.5 py-3 sm:gap-4 sm:px-4 sm:py-5">
+              {messages.map((message, index) => {
+                const isUser = message.role === 'user';
+                const waiting = message.streaming && !message.text;
+                return (
+                  <div key={`${message.role}-${index}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      style={{ overflowWrap: 'anywhere' }}
+                      className={`overflow-hidden whitespace-pre-wrap wrap-break-word rounded-2xl px-3 py-2.5 text-xs leading-5 sm:px-4 sm:py-3 sm:text-sm sm:leading-6 ${
+                        isUser ? 'max-w-[88%] sm:max-w-[75%]' : 'max-w-[96%] sm:max-w-[92%]'
+                      } ${isUser ? userBubble : message.error ? errorBubble : assistantBubble}`}
+                    >
+                      {waiting ? (
+                        <span className={`animate-pulse ${softText}`}>
+                          {message.stage === 'writing' ? 'Writing the answer…' : 'Searching your notes…'}
+                        </span>
+                      ) : (
+                        message.text
+                      )}
+                      {message.streaming && message.text && <span className="ml-0.5 animate-pulse">▍</span>}
+
+                      {message.requestOptions && (
+                        <p className={`mt-2 border-t pt-2 text-[10px] ${isDark ? 'border-slate-600 text-slate-300' : 'border-slate-200 text-slate-500'}`}>
+                          Subject: {message.requestOptions.subjectName || 'All subjects'}
+                          {' · '}
+                          Marks: {message.requestOptions.marks ? `${message.requestOptions.marks} marks` : 'No preference'}
+                        </p>
+                      )}
+
+                      {!isUser && !message.streaming && message.sources?.length > 0 && (
+                        <div className={`mt-3 border-t pt-2 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}>
+                          <p className={`mb-1.5 text-[10px] uppercase tracking-[0.15em] ${softText}`}>Sources</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {message.sources.slice(0, 6).map((source) => (
+                              <span
+                                key={`${source.resource_id}-${source.page}`}
+                                className={`max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] ${chipClass}`}
+                              >
+                                {source.title || source.subject || 'Notes'}
+                                {source.page ? ` · p.${source.page}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isUser && !message.streaming && !message.error && message.text && index >= initialMessages.length && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(message.text, index)}
+                          className={`mt-2 inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] transition ${softText} ${isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
+                        >
+                          {copiedIndex === index ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedIndex === index ? 'Copied' : 'Copy'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* tip + message box */}
+          <div className={`border-t px-2.5 pb-2.5 pt-2 sm:px-4 sm:pb-4 ${dividerClass} ${isDark ? 'bg-slate-950/40' : 'bg-white'}`}>
+            <div className="mx-auto w-full max-w-4xl">
+              {tipOpen && (
+                <div className={`mb-2 flex items-start gap-2 rounded-xl px-3 py-2 text-[11px] leading-4 ${isDark ? 'bg-indigo-950/50 text-slate-300' : 'bg-indigo-50 text-slate-600'}`}>
+                  <p className="min-w-0 flex-1">
+                    Asking several questions at once? Number them (1. 2. 3.) so each one gets its own full answer.
+                  </p>
                   <button
                     type="button"
-                    aria-label="Clear search"
-                    onClick={() => setChatSearch('')}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 ${softText}`}
+                    aria-label="Dismiss tip"
+                    onClick={() => setTipOpen(false)}
+                    className={`shrink-0 rounded-md p-0.5 ${softText}`}
                   >
                     <X size={12} />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-end gap-2 sm:gap-3">
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={input}
+                  maxLength={MAX_QUESTION_CHARS}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Ask anything about your course, notes, or assignments..."
+                  className={`min-h-11 min-w-0 flex-1 resize-none rounded-3xl border px-4 py-2.5 text-xs outline-none focus:border-slate-400 sm:text-sm ${inputClass}`}
+                />
+
+                {streaming ? (
+                  <button
+                    type="button"
+                    onClick={stopStreaming}
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition ${actionButton}`}
+                    aria-label="Stop answer"
+                    title="Stop answer"
+                  >
+                    <Square size={14} fill="currentColor" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionButton}`}
+                    aria-label="Send message"
+                  >
+                    <SendHorizontal size={16} />
                   </button>
                 )}
               </div>
             </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-              {chatsError && <p role="status" className="text-xs text-red-500">{chatsError}</p>}
-
-              {!chatsError && chats.length === 0 && (
-                <p className={`px-1 text-xs ${softText}`}>
-                  {searching ? 'No chats match your search.' : 'No chats yet. Ask your first question!'}
-                </p>
-              )}
-
-              {groupedChats.map((group) => (
-                <div key={group.label}>
-                  <p className={`mb-1.5 px-1 text-[10px] uppercase tracking-[0.2em] ${softText}`}>{group.label}</p>
-                  <ul className="space-y-1">
-                    {group.items.map((chat) => (
-                      <li key={chat._id} className="group relative">
-                        <button
-                          type="button"
-                          onClick={() => openChat(chat._id)}
-                          className={`block w-full rounded-xl px-3 py-2 pr-9 text-left transition ${
-                            chat._id === chatId
-                              ? isDark ? 'bg-slate-700' : 'bg-slate-200'
-                              : isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="block truncate text-sm font-medium">{chat.title}</span>
-                          {chat.snippet && <span className={`mt-0.5 block truncate text-[11px] ${softText}`}>{chat.snippet}</span>}
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Delete chat ${chat.title}`}
-                          onClick={(event) => handleDeleteChat(event, chat._id)}
-                          className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 opacity-100 transition hover:text-red-500 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 ${softText}`}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </aside>
-
-          <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <header className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b px-2.5 py-2.5 sm:gap-x-3 sm:px-4 sm:py-3 md:px-6 md:py-4 lg:flex-nowrap ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50/80'}`}>
-              <div className="order-1 flex min-w-0 flex-1 items-center gap-2 sm:gap-3 lg:flex-none">
-                <button
-                  type="button"
-                  aria-label={sidebarOpen ? 'Hide recent chats' : 'Open recent chats'}
-                  onClick={() => setSidebarOpen((value) => !value)}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-xl transition sm:hidden ${quickActionClass}`}
-                >
-                  {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-                </button>
-
-                <div>
-                  <p className={`text-[8px] uppercase tracking-[0.2em] sm:text-[10px] ${softText}`}>StudyHub AI</p>
-                  <h1 className="text-lg font-semibold sm:text-2xl">Ask AI</h1>
-                </div>
-
-                <button
-                  type="button"
-                  aria-label="New chat"
-                  title="New chat"
-                  onClick={startNewChat}
-                  className={`ml-auto inline-flex h-8 w-8 items-center justify-center rounded-xl transition sm:hidden ${quickActionClass}`}
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
-
-              <div className="order-3 flex min-w-0 basis-full flex-col gap-1.5 lg:order-2 lg:basis-auto lg:flex-1 lg:items-center">
-                <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center lg:w-auto lg:justify-center">
-                <label htmlFor="ask-ai-subject" className="sr-only">Filter by subject</label>
-                <select
-                  id="ask-ai-subject"
-                  value={selectedSubject}
-                  onChange={(event) => setSelectedSubject(event.target.value)}
-                  className={`h-9 w-full min-w-0 shrink-0 rounded-xl border px-3 text-xs outline-none sm:w-44 sm:text-sm lg:w-52 ${inputClass}`}
-                >
-                  <option value="all">All subjects</option>
-                  {subjects.map((subject) => (
-                    <option key={subject._id} value={subject._id}>{subject.name}</option>
-                  ))}
-                </select>
-
-                <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <legend className="sr-only">Answer length by marks (optional)</legend>
-                  <span className={`basis-full text-xs sm:basis-auto sm:self-center sm:pr-1 ${softText}`}>Marks (optional)</span>
-                  {MARKS_OPTIONS.map(({ value, words, pages }) => (
-                    <label
-                      key={value}
-                      title={`About ${words} words (${pages} pages)`}
-                      className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-within:ring-2 focus-within:ring-slate-400 ${
-                        selectedMarks === value
-                          ? 'border-slate-800 bg-slate-800 text-white'
-                          : isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="answer-marks"
-                        value={value}
-                        checked={selectedMarks === value}
-                        onChange={(event) => setSelectedMarks(event.target.value)}
-                        className="sr-only"
-                      />
-                      {value} marks
-                    </label>
-                  ))}
-                  {selectedMarks && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMarks('')}
-                      className={`rounded-full px-2 py-1 text-xs ${softText}`}
-                      aria-label="Clear marks selection"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </fieldset>
-                </div>
-                <p className={`text-[11px] ${softText}`}>
-                  {selectedMarksInfo
-                    ? `About ${selectedMarksInfo.words} words (${selectedMarksInfo.pages} pages) per question`
-                    : 'Pick marks to set how long the answer should be'}
-                </p>
-              </div>
-
-              <Link
-                to="/dashboard"
-                className={`order-2 ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] font-medium transition sm:gap-2 sm:text-sm lg:order-3 ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`}
-              >
-                <ArrowLeft size={12} className="sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Go back to main</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </header>
-
-            {subjectsError && (
-              <p role="status" className={`px-4 pt-2 text-xs ${softText}`}>{subjectsError}</p>
-            )}
-
-            <div className="relative flex min-h-0 flex-1 flex-col gap-3 p-2.5 sm:gap-4 sm:p-3 md:p-5">
-              <div
-                ref={messagesContainerRef}
-                onScroll={handleMessagesScroll}
-                className={`relative flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden rounded-[20px] border p-2.5 sm:gap-4 sm:rounded-3xl sm:p-3 md:p-4 ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-[#f9faf8]'}`}
-              >
-                {messages.map((message, index) => {
-                  const isUser = message.role === 'user';
-                  const waiting = message.streaming && !message.text;
-                  return (
-                    <div key={`${message.role}-${index}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                      <div
-                        style={{ overflowWrap: 'anywhere' }}
-                        className={`max-w-[90%] overflow-hidden whitespace-pre-wrap wrap-break-word rounded-2xl px-3 py-2.5 text-xs leading-5 sm:px-4 sm:py-3 sm:text-sm sm:leading-6 md:max-w-[75%] ${
-                          isUser ? userBubble : message.error ? errorBubble : assistantBubble
-                        }`}
-                      >
-                        {waiting ? (
-                          <span className={`animate-pulse ${softText}`}>
-                            {message.stage === 'writing' ? 'Writing the answer…' : 'Searching your notes…'}
-                          </span>
-                        ) : (
-                          message.text
-                        )}
-                        {message.streaming && message.text && <span className="ml-0.5 animate-pulse">▍</span>}
-
-                        {message.requestOptions && (
-                          <p className={`mt-2 border-t pt-2 text-[10px] ${isDark ? 'border-slate-600 text-slate-300' : 'border-slate-200 text-slate-500'}`}>
-                            Subject: {message.requestOptions.subjectName || 'All subjects'}
-                            {' · '}
-                            Marks: {message.requestOptions.marks ? `${message.requestOptions.marks} marks` : 'No preference'}
-                          </p>
-                        )}
-
-                        {!isUser && !message.streaming && message.sources?.length > 0 && (
-                          <div className={`mt-3 border-t pt-2 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}>
-                            <p className={`mb-1.5 text-[10px] uppercase tracking-[0.15em] ${softText}`}>Sources</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {message.sources.slice(0, 6).map((source) => (
-                                <span
-                                  key={`${source.resource_id}-${source.page}`}
-                                  className={`max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] ${chipClass}`}
-                                >
-                                  {source.title || source.subject || 'Notes'}
-                                  {source.page ? ` · p.${source.page}` : ''}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {!isUser && !message.streaming && !message.error && message.text && index >= initialMessages.length && (
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(message.text, index)}
-                            className={`mt-2 inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] transition ${softText} ${isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
-                          >
-                            {copiedIndex === index ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedIndex === index ? 'Copied' : 'Copy'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className={`rounded-[20px] border p-2.5 sm:rounded-3xl sm:p-3 ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-white'}`}>
-                <div className="flex items-end gap-2 sm:gap-3">
-                  <textarea
-                    rows={3}
-                    value={input}
-                    maxLength={MAX_QUESTION_CHARS}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    placeholder="Ask anything about your course, notes, or assignments..."
-                    className={`min-w-0 flex-1 resize-none rounded-2xl border px-3 py-2.5 text-xs outline-none focus:border-slate-400 sm:px-4 sm:py-3 sm:text-sm ${inputClass}`}
-                  />
-
-                  {streaming ? (
-                    <button
-                      type="button"
-                      onClick={stopStreaming}
-                      className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl transition sm:h-12 sm:w-12 ${actionButton}`}
-                      aria-label="Stop answer"
-                      title="Stop answer"
-                    >
-                      <Square size={14} fill="currentColor" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleSend}
-                      disabled={!input.trim()}
-                      className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl transition disabled:cursor-not-allowed disabled:opacity-50 sm:h-12 sm:w-12 ${actionButton}`}
-                      aria-label="Send message"
-                    >
-                      <SendHorizontal size={16} className="sm:h-4.5 sm:w-4.5" />
-                    </button>
-                  )}
-                </div>
-                <p className={`mt-1.5 px-1 text-[10px] sm:text-[11px] ${softText}`}>
-                  Asking several questions at once? Number them (1. 2. 3.) so each one gets its own full answer.
-                </p>
-              </div>
-            </div>
-          </main>
-        </div>
+          </div>
+        </main>
       </div>
+
+      {/* filters: bottom sheet on phones, centered card on larger screens */}
+      {sheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Subject and marks">
+          <button
+            type="button"
+            aria-label="Close filters"
+            onClick={() => setSheetOpen(false)}
+            className="absolute inset-0 bg-black/50"
+          />
+          <div className={`relative w-full max-w-md rounded-t-3xl p-5 shadow-2xl sm:rounded-3xl ${sheetPanel}`}>
+            <div className={`mx-auto mb-4 h-1 w-10 rounded-full sm:hidden ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+
+            <label htmlFor="ask-ai-subject" className={`mb-1.5 block text-xs ${softText}`}>Subject</label>
+            <select
+              id="ask-ai-subject"
+              value={draftSubject}
+              onChange={(event) => setDraftSubject(event.target.value)}
+              className={`h-11 w-full rounded-xl border px-3 text-sm outline-none ${inputClass}`}
+            >
+              <option value="all">All subjects</option>
+              {subjects.map((subject) => (
+                <option key={subject._id} value={subject._id}>{subject.name}</option>
+              ))}
+            </select>
+
+            <fieldset className="mt-4">
+              <legend className={`mb-1.5 text-xs ${softText}`}>Marks (optional)</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {MARKS_OPTIONS.map(({ value, words, pages }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={draftMarks === value}
+                    title={`About ${words} words (${pages} pages)`}
+                    onClick={() => setDraftMarks((current) => (current === value ? '' : value))}
+                    className={`h-11 rounded-full border text-sm font-medium transition-colors ${
+                      draftMarks === value
+                        ? 'border-indigo-600! bg-indigo-600! text-white!'
+                        : isDark ? 'border-slate-700 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {value} marks
+                  </button>
+                ))}
+              </div>
+              <p className={`mt-2 text-[11px] ${softText}`}>
+                {draftMarksInfo
+                  ? `About ${draftMarksInfo.words} words (${draftMarksInfo.pages} pages) per question. Tap again to clear.`
+                  : 'Pick marks to set how long the answer should be.'}
+              </p>
+            </fieldset>
+
+            <button
+              type="button"
+              onClick={applyFilters}
+              className="mt-5 h-12 w-full rounded-full bg-indigo-600! text-sm font-semibold text-white! transition hover:bg-indigo-500!"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
