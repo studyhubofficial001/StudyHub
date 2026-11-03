@@ -356,7 +356,7 @@ const UploadResources = () => {
                                         <th className="px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
                                             Subject
                                         </th>
-                                        <th className="px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
+                                        <th className="w-[10%] px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
                                             Year
                                         </th>
                                         <th className="px-3 py-1 text-left text-xs font-medium uppercase tracking-wider md:px-6 md:py-3">
@@ -377,13 +377,17 @@ const UploadResources = () => {
                                                         onClick={() => openResource(resource._id)}
                                                         className="block break-all text-left text-blue-600 hover:text-blue-800 hover:underline"
                                                     >
-                                                        {resource.title}
+                                                        <p className="text-[13px] break-normal" >
+                                                            {resource.title}
+                                                        </p>
                                                     </button>
                                                 </td>
                                                 <td className="px-2 py-2 break-all md:px-6 md:py-4">
+                                                    <p className="break-normal text-[13px]">
                                                     {resource.subject}
+                                                    </p>
                                                 </td>
-                                                <td className="px-2 py-2 break-all md:px-6 md:py-4">
+                                                <td className="w-[10%] px-2 py-2 break-all md:px-6 md:py-4">
                                                     {resource.year}
                                                 </td>
                                                 <td className="px-2 py-2 md:px-6 md:py-4">

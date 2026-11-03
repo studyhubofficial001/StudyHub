@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axiosInstance';
+import { setAuthToken } from '../api/authTokenStorage';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -42,6 +43,9 @@ const GoogleAuthButton = () => {
         callback: async (response) => {
           try {
             const result = await api.post('/auth/google', { credential: response.credential });
+            if (result.data.token) {
+              setAuthToken(result.data.token);
+            }
             const authenticatedUser = result.data.user;
             if (!authenticatedUser) {
               throw new Error('Google sign-in succeeded but no user data was returned.');

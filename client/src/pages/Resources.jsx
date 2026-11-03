@@ -167,7 +167,7 @@ const Resources = () => {
                           onClick={() => openResource(resource)}
                           className="block max-w-full truncate text-left text-sm md:text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
                         >
-                          <p className="text-[12px]">
+                          <p className="text-[12px] md:text-lg">
                           {resource.title}
                           </p>
                         </button>

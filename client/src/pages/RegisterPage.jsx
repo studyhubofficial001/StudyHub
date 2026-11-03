@@ -8,6 +8,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axiosInstance';
 import { useTheme } from '../context/ThemeContext';
+import { setAuthToken } from '../api/authTokenStorage';
 
 const RegisterPage = () => {
   const nav = useNavigate();
@@ -27,6 +28,9 @@ const RegisterPage = () => {
       username: username,
     }).then((response) => {
       console.log(response.data);
+      if (response.data.token) {
+        setAuthToken(response.data.token);
+      }
       setUser(response.data.user);
       nav('/verify-otp');
     }).catch((error) => {

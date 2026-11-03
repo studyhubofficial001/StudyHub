@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import api from '../api/axiosInstance';
 import { useTheme } from '../context/ThemeContext';
+import { setAuthToken } from '../api/authTokenStorage';
 
 const LoginPage = () => {
   const nav = useNavigate();
@@ -33,6 +34,9 @@ const LoginPage = () => {
         email: email,
         password: password,
       });
+      if (response.data.token) {
+        setAuthToken(response.data.token);
+      }
       const loggedInUser = response.data.user;
       if (!loggedInUser) {
         throw new Error('Login succeeded but no user data was returned.');
@@ -186,9 +190,11 @@ const LoginPage = () => {
               }}
               className='text-sm font-medium text-teal-600 hover:text-teal-500'
             >
+              <p className="text-[12px] md:text-sm">
               Forgot password?
+              </p>
             </button>
-            <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>
+            <p className={`text-[12px] md:text-sm ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>
               Don&apos;t have an account? <Link to="/register" className='text-teal-600'>Sign up</Link>
             </p>
           </div>
@@ -197,7 +203,7 @@ const LoginPage = () => {
             <div className={`mt-2 rounded-lg border p-4 ${isDark ? 'border-slate-700 bg-slate-800/90' : 'border-gray-200 bg-gray-50'}`}>
               {resetStep === 'email' && (
                 <div className='space-y-3'>
-                  <label htmlFor="resetEmail" className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
+                  <label htmlFor="resetEmail" className={` text-sm font-medium ${isDark ? 'text-slate-200' : 'text-gray-700'}`}>
                     Enter your email
                   </label>
                   <input
