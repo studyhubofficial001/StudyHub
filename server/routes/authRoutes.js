@@ -1,11 +1,9 @@
 const router = require('express').Router();
-const express = require('express');
 const {
     registerUser,
     verifyOTP,
     loginUser,
     googleAuth,
-    googleRedirect,
     resendOTP,
     getMe,
     logoutUser,
@@ -26,7 +24,6 @@ router.post('/verify-otp', protect, verifyOTP);
 router.post('/resend-otp', protect, resendOTP);
 router.post('/login', loginUser);
 router.post('/google', googleAuth);
-router.post('/google/redirect', express.urlencoded({ extended: false }), googleRedirect);
 router.get('/me', protect, getMe);
 router.post('/change-email', protect, requestEmailChange);
 router.post('/verify-email-change', protect, verifyEmailChange);

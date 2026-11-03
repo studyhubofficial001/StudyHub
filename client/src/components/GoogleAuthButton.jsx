@@ -1,14 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axiosInstance';
+import { setAuthToken } from '../api/authTokenStorage';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const API_URL = (import.meta.env.VITE_API_URL).replace(/\/$/, '');
-
-// Phones and in-app browsers lose the Google popup (blank white page), so they use full-page redirect instead.
-const shouldUseRedirect = () =>
-  /Android|iPhone|iPad|iPod|Mobile|FBAN|FBAV|Instagram|Line|WhatsApp|Snapchat|; wv\)/i.test(navigator.userAgent);
 
 let googleScriptPromise = null;
 const loadGoogleScript = () => {
@@ -21,8 +17,8 @@ const loadGoogleScript = () => {
     script.defer = true;
     script.onload = resolve;
     script.onerror = () => {
-      googleScriptPromise = null; // allow a retry
-      reject(new Error('Could not load Google sign-in'));
+      googleScriptPromise = null;
+      reject(new Error('Unable to load Google Sign-In. Check your connection and try again.'));
     };
     document.head.appendChild(script);
   });
@@ -33,6 +29,7 @@ const GoogleAuthButton = () => {
   const buttonRef = useRef(null);
   const navigate = useNavigate();
   const { setUser } = useAuth();
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -42,46 +39,50 @@ const GoogleAuthButton = () => {
       return;
     }
 
-    loadGoogleScript()
-      .then(() => {
-        if (cancelled || !window.google) return;
+    loadGoogleScript().then(() => {
+      if (cancelled || !window.google) return;
 
-        const redirect = shouldUseRedirect();
-        const options = { client_id: GOOGLE_CLIENT_ID };
-
-        if (redirect) {
-          // Google posts the login to our server, which sets the cookie and sends the browser to /dashboard
-          options.ux_mode = 'redirect';
-          options.login_uri = `${API_URL}/auth/google/redirect`;
-        } else {
-          options.ux_mode = 'popup';
-          options.callback = async (response) => {
-            try {
-              const result = await api.post('/auth/google', { credential: response.credential });
-              const authenticatedUser = result.data.user;
-              if (!authenticatedUser) {
-                throw new Error('Google sign-in succeeded but no user data was returned.');
-              }
-              setUser(authenticatedUser);
-              navigate(authenticatedUser.isProfileComplete ? '/dashboard' : '/onboarding');
-            } catch (error) {
-              alert(error.response?.data?.message || error.message || 'Google sign-in failed');
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        ux_mode: 'popup',
+        callback: async (response) => {
+          try {
+            if (!response.credential) {
+              throw new Error('Google did not return a sign-in credential. Please try again.');
             }
-          };
-        }
 
-        window.google.accounts.id.initialize(options);
+            const result = await api.post('/auth/google', { credential: response.credential });
+            if (result.data.token) {
+              setAuthToken(result.data.token);
+            }
+            const authenticatedUser = result.data.user;
+            if (!authenticatedUser) {
+              throw new Error('Google sign-in succeeded but no user data was returned.');
+            }
 
-        if (buttonRef.current) {
-          window.google.accounts.id.renderButton(buttonRef.current, {
-            theme: 'filled_black',
-            size: 'large',
-            width: 320,
-            text: 'continue_with',
-          });
+            setUser(authenticatedUser);
+            navigate(authenticatedUser.isProfileComplete ? '/dashboard' : '/onboarding');
+          } catch (error) {
+            console.error('Google sign-in failed:', error);
+            setErrorMessage(error.response?.data?.message || error.message || 'Google sign-in failed. Please try again.');
+          }
         }
-      })
-      .catch((error) => console.error(error));
+      });
+
+      if (buttonRef.current) {
+        window.google.accounts.id.renderButton(buttonRef.current, {
+          theme: 'filled_black',
+          size: 'large',
+          width: 320,
+          text: 'continue_with'
+        });
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        console.error('Unable to initialize Google Sign-In:', error);
+        setErrorMessage(error.message || 'Unable to load Google Sign-In.');
+      }
+    });
 
     return () => { cancelled = true; };
   }, [navigate, setUser]);
@@ -91,6 +92,11 @@ const GoogleAuthButton = () => {
   return (
     <div className="google-auth-wrap">
       <div ref={buttonRef} style={{ display: 'flex' }}></div>
+      {errorMessage && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 };
