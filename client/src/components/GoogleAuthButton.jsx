@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axiosInstance';
@@ -16,7 +16,10 @@ const loadGoogleScript = () => {
     script.async = true;
     script.defer = true;
     script.onload = resolve;
-    script.onerror = reject;
+    script.onerror = () => {
+      googleScriptPromise = null;
+      reject(new Error('Unable to load Google Sign-In. Check your connection and try again.'));
+    };
     document.head.appendChild(script);
   });
   return googleScriptPromise;
@@ -26,6 +29,7 @@ const GoogleAuthButton = () => {
   const buttonRef = useRef(null);
   const navigate = useNavigate();
   const { setUser } = useAuth();
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -40,8 +44,13 @@ const GoogleAuthButton = () => {
 
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
+        ux_mode: 'popup',
         callback: async (response) => {
           try {
+            if (!response.credential) {
+              throw new Error('Google did not return a sign-in credential. Please try again.');
+            }
+
             const result = await api.post('/auth/google', { credential: response.credential });
             if (result.data.token) {
               setAuthToken(result.data.token);
@@ -54,7 +63,8 @@ const GoogleAuthButton = () => {
             setUser(authenticatedUser);
             navigate(authenticatedUser.isProfileComplete ? '/dashboard' : '/onboarding');
           } catch (error) {
-            alert(error.response?.data?.message || error.message || 'Google sign-in failed');
+            console.error('Google sign-in failed:', error);
+            setErrorMessage(error.response?.data?.message || error.message || 'Google sign-in failed. Please try again.');
           }
         }
       });
@@ -67,6 +77,11 @@ const GoogleAuthButton = () => {
           text: 'continue_with'
         });
       }
+    }).catch((error) => {
+      if (!cancelled) {
+        console.error('Unable to initialize Google Sign-In:', error);
+        setErrorMessage(error.message || 'Unable to load Google Sign-In.');
+      }
     });
 
     return () => { cancelled = true; };
@@ -77,6 +92,11 @@ const GoogleAuthButton = () => {
   return (
     <div className="google-auth-wrap">
       <div ref={buttonRef} style={{ display: 'flex' }}></div>
+      {errorMessage && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 };
