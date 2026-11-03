@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sendEmail = require('../utils/sendEmail');
 const { OAuth2Client } = require('google-auth-library');
-
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const TOKEN_DAYS = 30; // Token expiration in days
@@ -211,38 +210,38 @@ const loginUser = async (req, res) => {
     }
 };
 
+const signInWithGoogle = async (credential) => {
+    const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { sub: googleId, email, name } = ticket.getPayload();
+ 
+    let user = await User.findOne({ email });
+    if (!user) {
+        user = await User.create({
+            username: name,
+            email,
+            googleId,
+            verified: true,
+            isProfileComplete: false,
+        });
+    } else if (!user.googleId) {
+        user.googleId = googleId;
+        user.verified = true;
+        user.isProfileComplete = false;
+        await user.save();
+    }
+    return user;
+};
+
 const googleAuth = async (req, res) => {
     const { credential } = req.body;
     if (!credential) {
         return res.status(400).json({ message: 'Google credential is required' });
     }
-
     try {
-        const ticket = await googleClient.verifyIdToken({
-            idToken: credential,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
-
-        const payload = ticket.getPayload();
-        const { sub: googleId, email, name } = payload;
-
-        let user = await User.findOne({ email });
-        
-        if (!user) {
-            user = await User.create({
-                username: name,
-                email,
-                googleId,
-                verified: true, // Google accounts are considered verified
-                isProfileComplete: false, // User needs to complete onboarding
-            });
-        } else if (!user.googleId) {
-            user.googleId = googleId;
-            user.verified = true; // Mark as verified since it's a Google account
-            user.isProfileComplete = false; // User needs to complete onboarding
-            await user.save();
-        }
-
+        const user = await signInWithGoogle(credential);
         const token = generateToken(user._id);
         setAuthCookie(res, token);
         res.status(200).json({
@@ -253,6 +252,22 @@ const googleAuth = async (req, res) => {
     } catch (error) {
         console.error('Error during Google authentication:', error);
         res.status(500).json({ message: 'Server error' });
+    }
+};
+
+const googleRedirect = async (req, res) => {
+    const clientUrl = (process.env.CLIENT_URL || 'https://studyhub4u.vercel.app').replace(/\/$/, '');
+    const credential = req.body && req.body.credential;
+    if (!credential) {
+        return res.redirect(`${clientUrl}/login?error=google`);
+    }
+    try {
+        const user = await signInWithGoogle(credential);
+        setAuthCookie(res, generateToken(user._id));
+        res.redirect(`${clientUrl}${user.isProfileComplete ? '/dashboard' : '/onboarding'}`);
+    } catch (error) {
+        console.error('Error during Google redirect sign-in:', error);
+        res.redirect(`${clientUrl}/login?error=google`);
     }
 };
 
