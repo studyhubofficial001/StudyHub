@@ -167,17 +167,21 @@ const Resources = () => {
                           onClick={() => openResource(resource)}
                           className="block max-w-full truncate text-left text-sm md:text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
                         >
+                          <p className="text-[12px]">
                           {resource.title}
+                          </p>
                         </button>
+                        <div className="text-sm">
                         <p className={mutedText}>
                           {resource.subject} • Year {resource.year} • {resource.category}
                         </p>
+                        </div>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => openResource(resource)}
-                      className="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900"
+                      className="rounded-md bg-gray-800 px-2 py-1 md:px-4 md:py-2 text-sm font-medium text-white hover:bg-gray-900"
                     >
                       Download
                     </button>
