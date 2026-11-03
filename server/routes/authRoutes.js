@@ -1,5 +1,5 @@
 const router = require('express').Router();
-cosnt express = require('express');
+const express = require('express');
 const {
     registerUser,
     verifyOTP,
