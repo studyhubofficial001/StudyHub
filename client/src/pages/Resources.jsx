@@ -165,7 +165,7 @@ const Resources = () => {
                         <button
                           type="button"
                           onClick={() => openResource(resource)}
-                          className="block max-w-full truncate text-left text-md md:text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                          className="block max-w-full truncate text-left text-sm md:text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline"
                         >
                           {resource.title}
                         </button>
