@@ -101,7 +101,7 @@ def retrieve(question: str, filters: dict[str, Any] | None = None, marks: int | 
             get_client(), COLLECTION_NAME, docs,
             max_pages=profile.ctx_pages,
             max_tokens=settings.max_context_tokens,
-            min_ratio=min(settings.min_page_score_ratio, 0.1) if long_answer else settings.min_page_score_ratio,
+            min_ratio=min(settings.min_page_score_ratio, 0.15) if long_answer else settings.min_page_score_ratio,
             read_on=long_answer,
         )
     return docs

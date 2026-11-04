@@ -86,6 +86,9 @@ def _load_page(client: QdrantClient, collection: str, doc: Document) -> Document
 # ---------------------------------------------------------------- pages that continue on the next page
 MAX_NEIGHBOUR_PAGES = 2   # how many following pages may be added to finish a cut-off page
 _OPEN_ENDINGS = (",", ":", "(", "-", " and", " or", " the", " of", " to")
+# a page that ends by announcing a list ("... as given below.") continues on the next page
+_ANNOUNCES_LIST = ("given below", "as follows", "are as follows", "the following", "listed below", "described below",
+                   "shown below", "as under", "are given", "include as given", "are:", "is:")
 
 
 def _ends_open(text: str) -> bool:
@@ -93,7 +96,10 @@ def _ends_open(text: str) -> bool:
     if text.count("{") > text.count("}") or text.count("(") > text.count(")"):
         return True
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    return bool(lines) and lines[-1].lower().endswith(_OPEN_ENDINGS)
+    if not lines:
+        return False
+    last = lines[-1].lower()
+    return last.endswith(_OPEN_ENDINGS) or last.rstrip(" .:;").endswith(_ANNOUNCES_LIST)
 
 
 def _starts_inside(text: str) -> bool:
@@ -146,10 +152,21 @@ def _add_neighbours(client, collection, kept: list[Document], max_tokens: int) -
             text, cur = text + "\n" + nxt.page_content, cur + 1
         if _starts_inside(page.page_content):                # backward: the code started on the page before
             fetch(page, rid, number - 1)
+    # A page that sits between two kept pages of the same document (kept 5 and 7, missing 6) belongs to the same topic.
+    by_doc: dict = {}
+    for rid, number in list(have):
+        if isinstance(number, int):
+            by_doc.setdefault(rid, []).append(number)
+    for rid, numbers in by_doc.items():
+        numbers.sort()
+        for a, b in zip(numbers, numbers[1:]):
+            if b - a == 2:
+                fetch(have[(rid, a)], rid, a + 1)
     return kept + extra
 
 
 # ---------------------------------------------------------------- long answers: keep reading after the best page
+READ_ON_PAGES = 3   # at least this many pages are read after the best page (token limit permitting)
 _NEW_CHAPTER = re.compile(r"^\s*Chapter\s*\|?\s*\d+\b", re.IGNORECASE)
 
 
@@ -232,7 +249,8 @@ def expand_to_pages(
 
     kept = _add_neighbours(client, collection, kept, max_tokens)
     if read_on:
-        kept = kept + _read_on(client, collection, kept, max_pages - len(kept), max_tokens)
+        # the pages after the best page are extra: they never use up the places of the pages the reranker chose
+        kept = kept + _read_on(client, collection, kept, max(READ_ON_PAGES, max_pages - len(kept)), max_tokens)
 
     # Reading order: a page that continues a list must come right after the page it continues.
     first_seen = {}
