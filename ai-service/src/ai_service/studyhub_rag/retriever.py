@@ -29,11 +29,26 @@ class CloudHybridRetriever(BaseRetriever):
     dense_vector_name:str
     sparse_vector_name: str
     k:int=20
+    hybrid: bool = True   # False = dense search only (used as a second try when the hybrid search returns nothing)
     filters: dict[str,Any] = Field(default_factory=dict)
 
     def _get_relevant_documents(self, query, *, run_manager:CallbackManagerForRetrieverRun) -> list[Document]:
         dense_vector = self.embeddings.embed_query(query)
         flt = build_filter(self.filters)
+        if not self.hybrid:
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=dense_vector,
+                using=self.dense_vector_name,
+                filter=flt,
+                limit=self.k,
+                with_payload=True,
+                with_vectors=False,
+            )
+            return [
+                Document(page_content=(p.payload or {}).get("page_content", ""), metadata=(p.payload or {}).get("metadata") or {})
+                for p in response.points
+            ]
         response = self.client.query_points(
             collection_name = self.collection_name,
             prefetch = [

@@ -27,6 +27,7 @@ You answer student questions using ONLY the <context> in the user message. You h
 - A <history> block, when present, is the earlier part of this chat. Use it only to understand what the question refers to ("it", "that program", "the previous answer").
 - An earlier answer in <history> counts as source material. If the question is about it (for example "what is its output"), answer from that earlier answer, working the result out step by step when needed, and use the <context> for any extra facts.
 - Every other fact must still come from the <context>.
+- If an earlier reply in <history> says the context had insufficient information, ignore that reply: it is not an answer and not a fact. Answer the current question from the current <context>.
 </conversation>
 
 <code_and_commands>
@@ -91,12 +92,16 @@ prompt = ChatPromptTemplate.from_messages([
 ])
 
 
-def length_rule(marks, words, pages) -> str:
-    """The length instruction. A target when the context is rich enough, never a reason to add outside text."""
-    if not marks:
+def length_rule(marks, words, pages, asked=False) -> str:
+    """The length instruction. The length is reached by covering ALL of the context, never by outside text."""
+    if not marks and not asked:
         return ("Write as much as the context requires to answer completely, and no more. "
                 "Never pad, repeat or add outside text to make the answer longer.")
-    return (f"Each question is worth {marks} marks. Aim for about {words} words per question "
-            f"(about {pages} pages of single-spaced A4 text) by explaining every point fully from the context. "
-            "This is a target, not a quota: if the context holds less material, write everything it supports and stop. "
-            "Never pad, repeat, or add outside text to reach the length, and do not add a note about it.")
+    who = f"Each question is worth {marks} marks. " if marks else ""
+    return (f"{who}The student needs a full-length answer of about {words} words per question "
+            f"(about {pages} pages of single-spaced A4 text). Do NOT stop early and do not summarise or compress. "
+            "Reach this length only with the <context>: go through it page by page and explain every definition, "
+            "point, step, example, table row, code listing, advantage and limitation it contains, completely, in its own wording. "
+            "Never use outside facts, repetition or filler to add length. "
+            "If you have used everything the context holds and the answer is still shorter than the target, stop, "
+            "and end with one line: \"The provided notes cover this topic only up to this point.\"")

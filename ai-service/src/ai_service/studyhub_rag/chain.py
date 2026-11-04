@@ -8,6 +8,7 @@
 The web API uses prepare() + stream_answer(); evaluation/evaluate.py uses answer(). Both share the same code.
 """
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
@@ -22,7 +23,7 @@ from studyhub_rag.conversation import clean_history, history_block, rewrite_ques
 from studyhub_rag.embeddings import OpenRouterEmbeddings
 from studyhub_rag.formatting import build_sources, format_docs
 from studyhub_rag.llm import choose_provider, get_llm
-from studyhub_rag.profiles import est_tokens, get_profile, split_questions
+from studyhub_rag.profiles import Profile, est_tokens, get_profile, split_questions, with_requested_length
 from studyhub_rag.pages import expand_to_pages
 from studyhub_rag.prompts import NO_ANSWER, length_rule, prompt
 from studyhub_rag.reranker import CohereReranker
@@ -61,15 +62,27 @@ def warm_up() -> None:
     _parts()
 
 
-def retrieve(question: str, filters: dict[str, Any] | None = None, marks: int | None = None) -> list[Document]:
+def retrieve(question: str, filters: dict[str, Any] | None = None, marks: int | None = None,
+             profile: Profile | None = None) -> list[Document]:
     """Hybrid search, then rerank. Longer answers (more marks) keep more chunks.
     If Cohere is down we still answer from the hybrid order."""
     retriever, reranker = _parts()
-    profile = get_profile(marks)
-    k = profile.k if marks else settings.retrieve_k
-    top_n = profile.top_n if marks else settings.rerank_top_n
+    profile = profile or get_profile(marks)
+    custom = bool(marks) or profile.asked
+    k = profile.k if custom else settings.retrieve_k
+    top_n = profile.top_n if custom else settings.rerank_top_n
 
     docs = retriever.model_copy(update={"filters": filters or {}, "k": k}).invoke(question)
+    if not docs:
+        # An empty result for a question the notes can answer is usually a hiccup, not the truth: try once more,
+        # with the dense search alone. The same filters are kept, so nothing outside the student's year/subject is read.
+        log.warning("hybrid search returned nothing for %r; retrying with dense search", question[:80])
+        time.sleep(0.4)
+        try:
+            docs = retriever.model_copy(update={"filters": filters or {}, "k": k, "hybrid": False}).invoke(question)
+        except Exception:
+            log.warning("dense retry failed", exc_info=True)
+            docs = []
     if not docs:
         return []
     try:
@@ -89,12 +102,12 @@ def retrieve(question: str, filters: dict[str, Any] | None = None, marks: int | 
     return docs
 
 
-def _retrieve_many(questions: list[str], filters, marks) -> list[Document]:
+def _retrieve_many(questions: list[str], filters, marks, profile: Profile | None = None) -> list[Document]:
     """One search per question, then merge: each question's best chunks come first, repeats dropped."""
     if len(questions) == 1:
-        return retrieve(questions[0], filters, marks)
+        return retrieve(questions[0], filters, marks, profile)
     with ThreadPoolExecutor(max_workers=min(len(questions), 3)) as pool:
-        lists = list(pool.map(lambda q: retrieve(q, filters, marks), questions))
+        lists = list(pool.map(lambda q: retrieve(q, filters, marks, profile), questions))
     merged, seen = [], set()
     for rank in range(max(len(group) for group in lists)):
         for group in lists:
@@ -141,8 +154,9 @@ def prepare(
     filters: dict[str, Any] | None = None,
     history: list[dict] | None = None,
 ) -> Plan:
-    profile = get_profile(marks)
     questions, truncated = split_questions(question)
+    # "explain in 8 pages" written in the message beats the marks setting
+    profile = with_requested_length(get_profile(marks), question)
     history = clean_history(history)
 
     # A follow-up ("what is its output?") is searched as a full question; the first question of a chat is not changed.
@@ -152,7 +166,7 @@ def prepare(
         search_questions = [full]
         shown = [f"{questions[0]}\n(In full: {full})"] if full != questions[0] else questions
 
-    docs = _retrieve_many(search_questions, filters, marks)
+    docs = _retrieve_many(search_questions, filters, marks, profile)
     answer_tokens = profile.tokens * len(questions)
 
     if not docs:
@@ -162,7 +176,7 @@ def prepare(
         "history": history_block(history),
         "context": format_docs(docs),
         "question": _task_text(shown),
-        "length": length_rule(marks, profile.words, f"{profile.pages:g}"),
+        "length": length_rule(marks, profile.words, f"{profile.pages:g}", profile.asked),
         "style": profile.style,
     }
     template = prompt

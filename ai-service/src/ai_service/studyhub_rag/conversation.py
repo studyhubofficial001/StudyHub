@@ -10,6 +10,7 @@ import logging
 from langchain_core.output_parsers import StrOutputParser
 
 from studyhub_rag.llm import get_rewriter
+from studyhub_rag.prompts import NO_ANSWER
 
 log = logging.getLogger(__name__)
 
@@ -32,13 +33,27 @@ Newest message: {question}
 Complete question:"""
 
 
+def _is_no_answer(text: str) -> bool:
+    """True for the reply 'The provided context contains insufficient information...'."""
+    return text.strip().lower().startswith(NO_ANSWER[:40].lower())
+
+
 def clean_history(history) -> list[dict]:
-    """Keep only the last few non-empty messages, cut to a safe length."""
+    """Keep only the last few non-empty messages, cut to a safe length.
+
+    A failed try ("insufficient information") is left out together with the question that caused it. Otherwise the
+    next message, even a correct one, is shown that reply and the model repeats it instead of reading the notes.
+    """
     out = []
     for item in history or []:
         role, text = item.get("role"), (item.get("text") or "").strip()
-        if role in ("user", "assistant") and text:
-            out.append({"role": role, "text": text})
+        if role not in ("user", "assistant") or not text:
+            continue
+        if role == "assistant" and _is_no_answer(text):
+            if out and out[-1]["role"] == "user":
+                out.pop()
+            continue
+        out.append({"role": role, "text": text})
     return out[-MAX_MESSAGES:]
 
 

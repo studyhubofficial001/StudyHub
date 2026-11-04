@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const MAX_BYTES = 4 * 1024 * 1024; // Vercel cannot send bigger responses than ~4.5 MB
+const MAX_BYTES = 4.3 * 1024 * 1024; // Vercel cannot send bigger responses than ~4.5 MB
 
 const s3 = new S3Client({
   region: process.env.B2_REGION,
