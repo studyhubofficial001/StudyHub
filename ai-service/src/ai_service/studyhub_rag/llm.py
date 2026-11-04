@@ -5,7 +5,7 @@ we expect) fits inside Groq's per-minute token limit. Anything bigger, for examp
 or several long questions in one message, goes to Gemini, which has a much larger limit.
 
     Groq route :  gpt-oss-120b (each key)  ->  gpt-oss-20b (each key)  ->  Gemini
-    Gemini route: Gemini (each key)
+    Gemini route: Gemini models in order (GEMINI_ANSWER_MODELS), each key  ->  Groq as the last try
 
 If a Groq call still fails (rate limit, outage), LangChain moves on to the next model by itself.
 """
@@ -50,6 +50,8 @@ def _groq_models(answer_tokens: int, effort: str | None = None) -> list:
 
 
 def _gemini_models(answer_tokens: int) -> list:
+    """Gemini models in fallback order. A 503 "high demand" belongs to the MODEL, not to the key, so the order is
+    model A (key 1), model B (key 1), model A (key 2), model B (key 2) ... and a busy model is skipped quickly."""
     if not settings.gemini_keys:
         return []
     try:
@@ -57,14 +59,15 @@ def _gemini_models(answer_tokens: int) -> list:
 
         return [
             ChatGoogleGenerativeAI(
-                model=settings.gemini_model,
+                model=model_name,
                 google_api_key=key,
                 temperature=0.0,
                 max_output_tokens=answer_tokens + GEMINI_THINKING_HEADROOM,
-                max_retries=2,
+                max_retries=1,   # one quick retry, then the next model; waiting on a busy model only slows the answer
                 timeout=180,
             )
             for key in settings.gemini_keys[:MAX_GEMINI_KEYS]
+            for model_name in settings.gemini_models
         ]
     except Exception:
         log.warning("Gemini disabled (package missing or bad settings)", exc_info=True)
@@ -75,7 +78,8 @@ def _gemini_models(answer_tokens: int) -> list:
 def get_llm(provider: str, answer_tokens: int, effort: str | None = None):
     """The model chain for one provider and one answer size (cached: there are only a few sizes)."""
     if provider == "gemini":
-        models = _gemini_models(answer_tokens) or _groq_models(answer_tokens, effort)
+        # big request: Gemini 3.5 -> Gemini 3.1; Groq stays as the very last try in case every Gemini model is busy
+        models = _gemini_models(answer_tokens) + _groq_models(answer_tokens, effort)
     else:
         models = _groq_models(answer_tokens, effort) + _gemini_models(answer_tokens)
     return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]

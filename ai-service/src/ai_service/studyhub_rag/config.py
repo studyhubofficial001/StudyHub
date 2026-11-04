@@ -74,6 +74,7 @@ class Settings:
     groq_request_budget: int  # largest request (prompt + answer, in tokens) we send to Groq; bigger goes to Gemini
     gemini_keys: tuple[str, ...]  # optional fallback, same keys as ingestion
     gemini_model: str
+    gemini_models: tuple[str, ...]  # Gemini answer models, tried in this order
     # security + tuning
     internal_key: str  # shared secret between Express and this service
     retrieve_k: int
@@ -109,6 +110,8 @@ def load_settings() -> Settings:
         groq_request_budget=_int("GROQ_REQUEST_BUDGET", 7000, 1000, 200000),
         gemini_keys=_csv("GEMINI_KEYS"),
         gemini_model=_optional("GEMINI_ANSWER_MODEL", "gemini-3.1-flash-lite"),
+        # GEMINI_ANSWER_MODELS=gemini-3.5-flash-lite,gemini-3.1-flash-lite  (first = preferred, the rest = fallbacks)
+        gemini_models=_csv("GEMINI_ANSWER_MODELS") or ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite"),
         internal_key=_optional("AI_INTERNAL_KEY"),
         retrieve_k=_int("RETRIEVE_K", 20, 1, 100),
         rerank_top_n=_int("RERANK_TOP_N", 7, 1, 20),
