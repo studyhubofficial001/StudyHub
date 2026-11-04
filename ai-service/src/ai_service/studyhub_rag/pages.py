@@ -11,6 +11,7 @@ ingestion repeated between neighbours. The model then sees the page exactly as i
 If anything fails, the original chunks are used, so answering never breaks because of this step.
 """
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from langchain_core.documents import Document
@@ -148,6 +149,46 @@ def _add_neighbours(client, collection, kept: list[Document], max_tokens: int) -
     return kept + extra
 
 
+# ---------------------------------------------------------------- long answers: keep reading after the best page
+_NEW_CHAPTER = re.compile(r"^\s*Chapter\s*\|?\s*\d+\b", re.IGNORECASE)
+
+
+def _read_on(client, collection, kept: list[Document], slots: int, max_tokens: int) -> list[Document]:
+    """A topic usually continues on the pages after the page that names it (a list of applications on one page, the
+    explanation of each item on the next pages). The reranker scores those explanation pages low because they do not
+    repeat the question's words, so they are added here, in order, right after the best page, until `slots` pages are
+    used, the context is full, or a new chapter starts."""
+    if slots <= 0 or not kept:
+        return []
+    best = kept[0]                                  # kept is still ordered best first
+    rid, number = _page_key(best)
+    if rid is None or not isinstance(number, int):
+        return []
+    have = {_page_key(p) for p in kept}
+    used = sum(len(p.page_content) * 2 // 7 + 1 for p in kept)
+    extra: list[Document] = []
+    cur = number
+    while have and (rid, cur + 1) in have:          # start after the last page already kept in this run
+        cur += 1
+    while len(extra) < slots:
+        cur += 1
+        if (rid, cur) in have:
+            continue
+        try:
+            text = _read_page(client, collection, rid, cur)
+        except Exception:
+            log.warning("could not read page %s", cur, exc_info=True)
+            break
+        if not text or _NEW_CHAPTER.match(text):
+            break                                   # end of the book, an empty page, or the next chapter begins
+        cost = len(text) * 2 // 7 + 1
+        if used + cost > max_tokens:
+            break
+        extra.append(_page_doc(best, cur, text))
+        used += cost
+    return extra
+
+
 def expand_to_pages(
     client: QdrantClient,
     collection: str,
@@ -155,6 +196,7 @@ def expand_to_pages(
     max_pages: int,
     max_tokens: int,
     min_ratio: float = 0.0,
+    read_on: bool = False,
 ) -> list[Document]:
     """Best-ranked chunks in, whole pages out, in reading order (document by document, page 1, 2, 3...).
 
@@ -189,6 +231,8 @@ def expand_to_pages(
         used += cost
 
     kept = _add_neighbours(client, collection, kept, max_tokens)
+    if read_on:
+        kept = kept + _read_on(client, collection, kept, max_pages - len(kept), max_tokens)
 
     # Reading order: a page that continues a list must come right after the page it continues.
     first_seen = {}

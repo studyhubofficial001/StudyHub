@@ -94,11 +94,15 @@ def retrieve(question: str, filters: dict[str, Any] | None = None, marks: int | 
 
     if settings.expand_to_pages:
         # Chunks are only pieces of a page; give the model the full pages so nothing the page says is missing.
+        # A long answer (8 or 16 marks, or a length typed in the question) also reads on after the best page, because the
+        # explanation of a topic sits on the pages that follow it, and it accepts weaker pages (low rerank score).
+        long_answer = profile.asked or (profile.marks or 0) >= 8
         docs = expand_to_pages(
             get_client(), COLLECTION_NAME, docs,
             max_pages=profile.ctx_pages,
             max_tokens=settings.max_context_tokens,
-            min_ratio=settings.min_page_score_ratio,
+            min_ratio=min(settings.min_page_score_ratio, 0.1) if long_answer else settings.min_page_score_ratio,
+            read_on=long_answer,
         )
     return docs
 

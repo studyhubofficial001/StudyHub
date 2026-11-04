@@ -27,12 +27,32 @@ _SECTION_NUMBER_ONLY = re.compile(r"^\d{1,2}\.\d{1,2}$")                        
 _LATEX_TEXT = re.compile(r"\\text\{([^}]*)\}")
 
 
-def clean_page_text(text: str) -> str:
-    """Remove running headers/footers, the page number printed next to them, and LaTeX wrappers from one page of notes.
-    A lone number like 3.14 is removed only when it sits right next to a running header, so program output is safe."""
+def _head_key(line: str) -> str:
+    """'Introduction to OOP | 1.3' and 'Introduction to OOP | 1.5' are the same running header: compare without numbers."""
+    return re.sub(r"[\d.|]+", " ", line).strip().lower()
+
+
+def _is_head(line: str) -> bool:
+    line = line.strip()
+    return bool(_RUNNING_HEAD.match(line) or _RUNNING_HEAD_NUM_FIRST.match(line))
+
+
+def running_headers(texts: list[str]) -> set[str]:
+    """A header line that shows up on two or more of the pages is page furniture. A line that shows up once might be a
+    real section heading ("1.5 | Applications"), so it is never deleted: content must never be lost."""
+    counts: dict[str, int] = {}
+    for text in texts:
+        for key in {_head_key(ln) for ln in text.split("\n") if _is_head(ln)}:
+            counts[key] = counts.get(key, 0) + 1
+    return {key for key, n in counts.items() if n >= 2}
+
+
+def clean_page_text(text: str, headers: set[str] | None = None) -> str:
+    """Remove the repeated running headers, the page number printed next to them, and LaTeX wrappers."""
+    headers = headers or set()
     lines = text.split("\n")
     filled = [i for i, ln in enumerate(lines) if ln.strip()]
-    heads = {i for i in filled if _RUNNING_HEAD.match(lines[i].strip()) or _RUNNING_HEAD_NUM_FIRST.match(lines[i].strip())}
+    heads = {i for i in filled if _is_head(lines[i]) and _head_key(lines[i]) in headers}
     drop = set(heads)
     for pos, i in enumerate(filled):
         if _SECTION_NUMBER_ONLY.match(lines[i].strip()):
@@ -48,8 +68,10 @@ def format_docs(docs):
     if not docs:
         return "NO_CONTEXT_RETRIEVED"
     seen, chunks = set(), []
-    for doc in docs:
-        text = clean_page_text(doc.page_content.replace("</context>", ""))
+    raw = [doc.page_content.replace("</context>", "") for doc in docs]
+    headers = running_headers(raw)
+    for doc, body in zip(docs, raw):
+        text = clean_page_text(body, headers)
         if text and text not in seen:
             seen.add(text)
             chunks.append(f"{source_header(doc.metadata)}\n{text}")
