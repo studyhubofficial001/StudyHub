@@ -8,9 +8,10 @@
 The web API uses prepare() + stream_answer(); evaluation/evaluate.py uses answer(). Both share the same code.
 """
 import logging
+import math
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any, AsyncIterator
 
@@ -19,7 +20,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 from studyhub_rag.config import settings
 from studyhub_rag.codefix import looks_like_code, needs_code_pass, repair_prompt
-from studyhub_rag.conversation import clean_history, history_block, rewrite_question
+from studyhub_rag.conversation import clean_history, history_block, rewrite_question, search_queries
 from studyhub_rag.embeddings import OpenRouterEmbeddings
 from studyhub_rag.formatting import build_sources, format_docs
 from studyhub_rag.llm import choose_provider, get_llm
@@ -117,6 +118,26 @@ def _retrieve_many(questions: list[str], filters, marks, profile: Profile | None
     return merged
 
 
+def _retrieve_parts(queries: list[str], filters, marks, profile: Profile) -> list[Document]:
+    """One question with several parts ("X and its advantages and disadvantages"): search each part, keep the pages
+    part by part (so the answer follows the question's order), and share the page budget between the parts."""
+    share = replace(
+        profile,
+        ctx_pages=max(2, math.ceil(profile.ctx_pages / len(queries))),
+        top_n=max(4, math.ceil(profile.top_n / len(queries))),
+        k=max(15, math.ceil(profile.k / len(queries))),
+    )
+    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+        groups = list(pool.map(lambda q: retrieve(q, filters, marks, share), queries))
+    merged, seen = [], set()
+    for group in groups:
+        for doc in group:
+            if doc.page_content not in seen:
+                seen.add(doc.page_content)
+                merged.append(doc)
+    return merged
+
+
 def _task_text(questions: list[str]) -> str:
     if len(questions) == 1:
         return f"Question: {questions[0]}"
@@ -166,7 +187,11 @@ def prepare(
         search_questions = [full]
         shown = [f"{questions[0]}\n(In full: {full})"] if full != questions[0] else questions
 
-    docs = _retrieve_many(search_questions, filters, marks, profile)
+    if len(search_questions) == 1:
+        parts = search_queries(search_questions[0])
+        docs = _retrieve_parts(parts, filters, marks, profile) if len(parts) > 1 else _retrieve_many(search_questions, filters, marks, profile)
+    else:
+        docs = _retrieve_many(search_questions, filters, marks, profile)
     answer_tokens = profile.tokens * len(questions)
 
     if not docs:

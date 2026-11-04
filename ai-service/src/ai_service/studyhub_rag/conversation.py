@@ -6,6 +6,7 @@ Express sends the last few messages of the chat. Two things are done with them:
 The first question of a chat has no history, so nothing here runs and nothing changes for it.
 """
 import logging
+import re
 
 from langchain_core.output_parsers import StrOutputParser
 
@@ -86,3 +87,34 @@ def rewrite_question(question: str, history: list[dict]) -> str:
         log.warning("could not rewrite the follow-up; using the previous question instead", exc_info=True)
     last_question = next((m["text"] for m in reversed(history) if m["role"] == "user"), "")
     return f"{_cut(last_question, 300)} {question}".strip()
+
+
+# ---------------------------------------------------------------- one question, several things to look up
+SPLIT_PROMPT = """A student asked one question. List the separate things the notes must be searched for, one search query per line, at most 3 lines.
+- Every query must name the main topic, so it can be searched alone.
+- Example: "introduction to OOP and its advantages and disadvantages" gives
+introduction to object oriented programming
+advantages of object oriented programming
+disadvantages of object oriented programming
+- If the question asks about one thing only, output the question unchanged on one line.
+- Output only the queries, no numbering, no other words.
+
+Question: {question}"""
+
+_MANY_PARTS = re.compile(r"\b(and|vs|versus|along with|as well as|with)\b|,|&", re.IGNORECASE)
+
+
+def search_queries(question: str) -> list[str]:
+    """One query per part of the question, so each part's pages are found (a single search finds only the strongest part).
+    A short or single-part question is returned as it is, with no model call."""
+    if len(question.split()) < 5 or not _MANY_PARTS.search(question):
+        return [question]
+    try:
+        chain = get_rewriter() | StrOutputParser()
+        text = chain.invoke(SPLIT_PROMPT.format(question=question))
+        lines = [ln.strip().lstrip("-*0123456789.) ").strip() for ln in text.splitlines() if ln.strip()]
+        lines = [ln for ln in lines if 3 <= len(ln) <= 300][:3]
+        return lines or [question]
+    except Exception:
+        log.warning("could not split the question into parts; searching it as one", exc_info=True)
+        return [question]

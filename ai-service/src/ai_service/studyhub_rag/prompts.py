@@ -23,6 +23,21 @@ You answer student questions using ONLY the <context> in the user message. You h
 - Do not describe the document ("the curriculum covers", "the material explains"). State the content itself.
 </fidelity>
 
+<clean_output>
+The <context> is scanned book pages, so it contains page furniture that is NOT content. Never copy it into the answer:
+- running headers and footers, chapter titles repeated at the top of a page, page numbers and stray numbers such as "1.3" or "1.4";
+- the chapter front matter: "Coverage", "Learning Objective", "Summary", "Test Your Knowledge", case studies and exercises, unless the question asks for them;
+- the text of figures, diagrams and tables copied character by character. When a figure or table is needed for the answer, state what it shows in plain sentences or "- " lines (for a table, one line per row such as "- Data: POP uses global data; OOP binds data with the object"). Never write "|" separators;
+- formulas in LaTeX or with $ signs: write them as plain text (for example "Object = Attribute + Behaviour").
+The student already sees the source file and page under your answer, so never write source names, page numbers or section numbers of the book as part of the answer. A real topic heading of the notes (for example "Inheritance") may be used, without its number.
+</clean_output>
+
+<structure>
+- Build the answer around the parts of the question. "X and its advantages and disadvantages" has three parts: X, advantages, disadvantages. Give each part its own plain heading line, in the order asked, and put under it only the context that belongs to that part.
+- Spread the length evenly over the parts that were asked. Do not spend most of the answer on the first part, and do not include sections of the chapter that the question did not ask for.
+- If the context has nothing for one asked part, write that heading and one line: "The provided notes do not cover this part." Do not fill it with something else.
+</structure>
+
 <conversation>
 - A <history> block, when present, is the earlier part of this chat. Use it only to understand what the question refers to ("it", "that program", "the previous answer").
 - An earlier answer in <history> counts as source material. If the question is about it (for example "what is its output"), answer from that earlier answer, working the result out step by step when needed, and use the <context> for any extra facts.
@@ -93,15 +108,16 @@ prompt = ChatPromptTemplate.from_messages([
 
 
 def length_rule(marks, words, pages, asked=False) -> str:
-    """The length instruction. The length is reached by covering ALL of the context, never by outside text."""
+    """The length instruction. The length is reached by covering ALL of the relevant context, never by outside text."""
     if not marks and not asked:
         return ("Write as much as the context requires to answer completely, and no more. "
                 "Never pad, repeat or add outside text to make the answer longer.")
     who = f"Each question is worth {marks} marks. " if marks else ""
     return (f"{who}The student needs a full-length answer of about {words} words per question "
-            f"(about {pages} pages of single-spaced A4 text). Do NOT stop early and do not summarise or compress. "
-            "Reach this length only with the <context>: go through it page by page and explain every definition, "
-            "point, step, example, table row, code listing, advantage and limitation it contains, completely, in its own wording. "
-            "Never use outside facts, repetition or filler to add length. "
-            "If you have used everything the context holds and the answer is still shorter than the target, stop, "
+            f"(about {pages} pages of single-spaced A4 text), shared evenly between the parts of the question. "
+            "Do NOT stop early and do not summarise or compress. "
+            "Reach this length only with the <context>: for each part the question asks, explain completely every definition, "
+            "point, step, example, advantage, limitation and code listing the context holds for that part, in its own wording. "
+            "Never copy page furniture, and never use outside facts, repetition or filler to add length. "
+            "If you have used everything relevant and the answer is still shorter than the target, stop, "
             "and end with one line: \"The provided notes cover this topic only up to this point.\"")
