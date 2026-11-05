@@ -7,10 +7,7 @@ or several long questions in one message, goes to Gemini, which has a much large
     Groq route :  gpt-oss-120b (each key)  ->  gpt-oss-20b (each key)  ->  Gemini
     Gemini route: Gemini models in order (GEMINI_ANSWER_MODELS), each key  ->  Groq as the last try
 
-What changed: this module no longer builds a LangChain "with_fallbacks" chain. That chain can only switch model
-BEFORE the first word arrives; when Gemini answered "503 high demand" in the middle of a long answer, the answer
-stayed half written. Now get_models() returns the plain ordered list and resilient.py walks it: it switches model
-at any moment and CONTINUES the text from where it stopped.
+get_models() provides the ordered candidates, while get_llm() adapts them to the LangChain runnable used by chain.py.
 """
 import logging
 from functools import lru_cache
@@ -86,6 +83,15 @@ def get_models(provider: str, answer_tokens: int, effort: str | None = None) -> 
     else:
         models = _groq_models(answer_tokens, effort) + _gemini_models(answer_tokens)
     return tuple(models)
+
+
+@lru_cache(maxsize=32)
+def get_llm(provider: str, answer_tokens: int, effort: str | None = None):
+    """Return the LangChain runnable expected by the answer and streaming flows."""
+    models = get_models(provider, answer_tokens, effort)
+    if not models:
+        raise RuntimeError(f"No language models are configured for provider {provider!r}")
+    return models[0].with_fallbacks(list(models[1:])) if len(models) > 1 else models[0]
 
 
 @lru_cache(maxsize=1)
