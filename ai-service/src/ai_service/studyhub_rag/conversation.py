@@ -15,7 +15,7 @@ from studyhub_rag.prompts import NO_ANSWER
 
 log = logging.getLogger(__name__)
 
-MAX_MESSAGES = 4          # the last two question-and-answer pairs
+MAX_MESSAGES = 2          # the last one question-and-answer pairs
 USER_CHARS = 700
 ANSWER_CHARS = 2500       # an earlier answer may contain a whole program
 REWRITE_ANSWER_CHARS = 700

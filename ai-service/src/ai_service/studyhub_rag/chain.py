@@ -16,18 +16,19 @@ from functools import lru_cache
 from typing import Any, AsyncIterator
 
 from langchain_core.documents import Document
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import AIMessage, HumanMessage
 
 from studyhub_rag.config import settings
 from studyhub_rag.codefix import looks_like_code, needs_code_pass, repair_prompt
 from studyhub_rag.conversation import clean_history, history_block, rewrite_question, search_queries
 from studyhub_rag.embeddings import OpenRouterEmbeddings
 from studyhub_rag.formatting import build_sources, format_docs
-from studyhub_rag.llm import choose_provider, get_llm
+from studyhub_rag.llm import choose_provider, get_models
 from studyhub_rag.profiles import Profile, est_tokens, get_profile, split_questions, with_requested_length
 from studyhub_rag.pages import expand_to_pages
 from studyhub_rag.prompts import NO_ANSWER, length_rule, prompt
 from studyhub_rag.reranker import CohereReranker
+from studyhub_rag.resilient import generate_text, stream_text
 from studyhub_rag.retriever import CloudHybridRetriever
 from studyhub_rag.vectorstore import (
     COLLECTION_NAME,
@@ -163,6 +164,7 @@ class Plan:
     code_mode: bool = False  # the notes hold code: write a draft, then fix it with the compiler-style pass
     context: str = ""        # the context text and question text, kept for that second pass
     task: str = ""
+    target_words: int = 0    # expected answer length in words (0 = no fixed length, so no top-up)
 
     def meta(self) -> dict:
         return {
@@ -216,8 +218,9 @@ def prepare(
     provider = choose_provider(prompt_tokens, answer_tokens)
     log.info("route=%s marks=%s questions=%d history=%d prompt~%d answer~%d", provider, marks, len(questions), len(history), prompt_tokens, answer_tokens)
     code_mode = settings.fix_code and needs_code_pass(" ".join(search_questions), inputs["context"])
+    target_words = profile.words * len(questions) if (marks or profile.asked) else 0
     return Plan(questions, truncated, marks, docs, messages, prompt_tokens, answer_tokens, provider,
-                code_mode, inputs["context"], inputs["question"])
+                code_mode, inputs["context"], inputs["question"], target_words)
 
 
 # ---------------------------------------------------------------- the second pass for code
@@ -225,55 +228,112 @@ CODE_PASS_EXTRA_TOKENS = 1700   # the reviewer thinks before it writes, and thos
 
 
 def _repair_request(plan: Plan, draft: str):
-    """(messages, model chain) for the code-fixing pass. The model is chosen by the size of THIS request."""
+    """(messages, models) for the code-fixing pass. The models are chosen by the size of THIS request."""
     messages = repair_prompt.format_messages(context=plan.context, question=plan.task, draft=draft)
     tokens = est_tokens("".join(str(m.content) for m in messages))
     budget = plan.answer_tokens + CODE_PASS_EXTRA_TOKENS
     provider = choose_provider(tokens, budget)
     log.info("code pass: route=%s prompt~%d", provider, tokens)
-    return messages, get_llm(provider, budget, settings.code_reasoning_effort) | StrOutputParser()
+    return messages, get_models(provider, budget, settings.code_reasoning_effort)
 
 
+# ---------------------------------------------------------------- top-up for an answer that is too short
+END_LINE = "cover this topic only up to this point"   # the model's own "I used everything" sentence (see prompts.py)
+
+TOPUP_TEXT = (
+    "The answer above has about {have} words, but this question needs about {want}. Go back through EVERY page of the "
+    "<context> and continue the answer with the relevant material you have not used yet (items, explanations, examples, "
+    "code, advantages, limitations, applications). Do not repeat anything already written, do not write a conclusion "
+    "for the earlier text, and keep the same plain-text format and rules. If the context has nothing more, reply with "
+    "only: The provided notes cover this topic only up to this point."
+)
+
+
+def _topup_request(plan: Plan, text: str):
+    """(models, messages) for one top-up pass, or None when the answer is long enough (or top-up is off)."""
+    if not plan.target_words or settings.max_topups < 1 or END_LINE in text.lower():
+        return None
+    have = len(text.split())
+    if have >= settings.min_answer_ratio * plan.target_words:
+        return None
+    messages = [*plan.messages, AIMessage(content=text),
+                HumanMessage(content=TOPUP_TEXT.format(have=have, want=plan.target_words))]
+    remaining = max(600, plan.answer_tokens - est_tokens(text))
+    provider = choose_provider(plan.prompt_tokens + est_tokens(text) + 200, remaining)
+    log.info("top-up: answer has %d of ~%d words, route=%s", have, plan.target_words, provider)
+    return get_models(provider, remaining), messages
+
+
+# ---------------------------------------------------------------- answering
 def answer(question: str, filters: dict[str, Any] | None = None, marks: int | None = None) -> dict:
-    """Non-streaming version (used by evaluation)."""
+    """Non-streaming version (used by evaluation). Survives a model failing half way."""
     plan = prepare(question, marks, filters)
     if not plan.docs:
         return {"answer": NO_ANSWER, "docs": [], "sources": [], "provider": plan.provider}
-    text = (get_llm(plan.provider, plan.answer_tokens) | StrOutputParser()).invoke(plan.messages)
+    text = generate_text(get_models(plan.provider, plan.answer_tokens), plan.messages)
     if plan.code_mode and looks_like_code(text):
         try:
-            messages, repair = _repair_request(plan, text)
-            text = repair.invoke(messages)
+            messages, models = _repair_request(plan, text)
+            text = generate_text(models, messages)
         except Exception:
             log.warning("code pass failed; returning the draft", exc_info=True)
+    elif not plan.code_mode:
+        for _ in range(settings.max_topups):
+            request = _topup_request(plan, text)
+            if not request:
+                break
+            try:
+                text += "\n\n" + generate_text(*request)
+            except Exception:
+                log.warning("top-up failed; returning the answer as it is", exc_info=True)
+                break
     return {"answer": text, "docs": plan.docs, "sources": build_sources(plan.docs), "provider": plan.provider}
 
 
 async def stream_answer(plan: Plan) -> AsyncIterator[str]:
-    """Yields the answer piece by piece. Search is done before this (see main.py)."""
+    """Yields the answer piece by piece. Search is done before this (see main.py).
+    If a model fails half way (503, rate limit) the next model continues the same answer (see resilient.py)."""
     if not plan.docs:
         yield NO_ANSWER
         return
-    chain = get_llm(plan.provider, plan.answer_tokens) | StrOutputParser()
+    models = get_models(plan.provider, plan.answer_tokens)
 
     if not plan.code_mode:
-        async for piece in chain.astream(plan.messages):
-            if piece:  # reasoning models send empty pieces while they think
-                yield piece
+        text = ""
+        async for piece in stream_text(models, plan.messages):
+            text += piece
+            yield piece
+        # the answer ended normally but is much shorter than the marks need: one more pass for the skipped material
+        for _ in range(settings.max_topups):
+            request = _topup_request(plan, text)
+            if not request:
+                break
+            extra, started = "", False
+            try:
+                async for piece in stream_text(*request):
+                    if not started:
+                        started = True
+                        yield "\n\n"
+                        extra = "\n\n"
+                    extra += piece
+                    yield piece
+            except Exception:
+                log.warning("top-up failed; the answer is complete without it", exc_info=True)
+                break
+            text += extra
         return
 
     # The notes contain code: write the answer, then let the reviewer pass fix it, and stream THAT.
-    draft = await chain.ainvoke(plan.messages)
+    draft = "".join([piece async for piece in stream_text(models, plan.messages)])
     if not looks_like_code(draft):
         yield draft
         return
     sent = False
     try:
-        messages, repair = _repair_request(plan, draft)
-        async for piece in repair.astream(messages):
-            if piece:
-                sent = True
-                yield piece
+        messages, repair_models = _repair_request(plan, draft)
+        async for piece in stream_text(repair_models, messages):
+            sent = True
+            yield piece
     except Exception:
         log.warning("code pass failed", exc_info=True)
         if sent:
