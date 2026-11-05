@@ -88,6 +88,9 @@ class Settings:
     min_page_score_ratio: float  # a page must score at least this share of the best page's score
     max_context_tokens: int  # upper limit for the context sent to the model
     groq_reasoning_effort: str  # "low", "medium" or "high"
+    min_answer_ratio: float  # an answer shorter than this share of its target length gets one automatic top-up
+    max_topups: int  # how many top-up passes one answer may use (0 switches the feature off)
+    stream_rounds: int  # how many times the whole model list is tried when every model fails (503, rate limit)
 
 
 def load_settings() -> Settings:
@@ -119,11 +122,14 @@ def load_settings() -> Settings:
         max_questions=_int("MAX_QUESTIONS", 5, 1, 10),
         expand_to_pages=_optional("EXPAND_TO_PAGES", "true").lower() not in ("0", "false", "no", "off"),
         fix_code=_optional("CODE_REPAIR", "true").lower() not in ("0", "false", "no", "off"),
-        code_reasoning_effort=_optional("CODE_REASONING_EFFORT", "medium").lower(),
+        code_reasoning_effort=_optional("CODE_REASONING_EFFORT", "high").lower(),
         rewrite_followups=_optional("REWRITE_FOLLOWUPS", "true").lower() not in ("0", "false", "no", "off"),
         min_page_score_ratio=float(_optional("MIN_PAGE_SCORE_RATIO", "0.3")),
         max_context_tokens=_int("MAX_CONTEXT_TOKENS", 12000, 1000, 100000),
         groq_reasoning_effort=_optional("GROQ_REASONING_EFFORT", "low").lower(),
+        min_answer_ratio=float(_optional("MIN_ANSWER_RATIO", "0.8")),
+        max_topups=_int("MAX_TOPUPS", 1, 0, 3),
+        stream_rounds=_int("STREAM_ROUNDS", 2, 1, 4),
     )
 
 

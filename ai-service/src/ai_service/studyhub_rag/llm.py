@@ -1,4 +1,4 @@
-"""studyhub_rag/llm.py: picks the answer model for each request.
+"""studyhub_rag/llm.py: picks the answer models for each request.
 
 Rule: Groq (GPT-OSS) handles a request only when the WHOLE request (prompt + context + the answer
 we expect) fits inside Groq's per-minute token limit. Anything bigger, for example a 16-marks answer
@@ -7,7 +7,10 @@ or several long questions in one message, goes to Gemini, which has a much large
     Groq route :  gpt-oss-120b (each key)  ->  gpt-oss-20b (each key)  ->  Gemini
     Gemini route: Gemini models in order (GEMINI_ANSWER_MODELS), each key  ->  Groq as the last try
 
-If a Groq call still fails (rate limit, outage), LangChain moves on to the next model by itself.
+What changed: this module no longer builds a LangChain "with_fallbacks" chain. That chain can only switch model
+BEFORE the first word arrives; when Gemini answered "503 high demand" in the middle of a long answer, the answer
+stayed half written. Now get_models() returns the plain ordered list and resilient.py walks it: it switches model
+at any moment and CONTINUES the text from where it stopped.
 """
 import logging
 from functools import lru_cache
@@ -19,7 +22,7 @@ from studyhub_rag.config import settings
 log = logging.getLogger(__name__)
 
 GROQ_THINKING_HEADROOM = 800     # gpt-oss thinks before it answers; those tokens count against the limit too
-GEMINI_THINKING_HEADROOM = 2000  # same for Gemini, so a long answer is never cut off by its own thinking
+GEMINI_THINKING_HEADROOM = 3000  # same for Gemini, so a long answer is never cut off by its own thinking
 MAX_GEMINI_KEYS = 3
 
 
@@ -63,7 +66,7 @@ def _gemini_models(answer_tokens: int) -> list:
                 google_api_key=key,
                 temperature=0.0,
                 max_output_tokens=answer_tokens + GEMINI_THINKING_HEADROOM,
-                max_retries=1,   # one quick retry, then the next model; waiting on a busy model only slows the answer
+                max_retries=0,   # resilient.py switches model at once and retries the whole list after a short pause
                 timeout=180,
             )
             for key in settings.gemini_keys[:MAX_GEMINI_KEYS]
@@ -75,14 +78,14 @@ def _gemini_models(answer_tokens: int) -> list:
 
 
 @lru_cache(maxsize=32)
-def get_llm(provider: str, answer_tokens: int, effort: str | None = None):
-    """The model chain for one provider and one answer size (cached: there are only a few sizes)."""
+def get_models(provider: str, answer_tokens: int, effort: str | None = None) -> tuple:
+    """The ordered list of models for one provider route and one answer size (cached: there are only a few sizes)."""
     if provider == "gemini":
         # big request: Gemini 3.5 -> Gemini 3.1; Groq stays as the very last try in case every Gemini model is busy
         models = _gemini_models(answer_tokens) + _groq_models(answer_tokens, effort)
     else:
         models = _groq_models(answer_tokens, effort) + _gemini_models(answer_tokens)
-    return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]
+    return tuple(models)
 
 
 @lru_cache(maxsize=1)
