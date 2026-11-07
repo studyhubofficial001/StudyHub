@@ -7,3 +7,4 @@ qdrant-client
 langchain-core
 langchain-groq
 langchain-google-genai
+redis>=5.0

@@ -91,6 +91,12 @@ class Settings:
     min_answer_ratio: float  # an answer shorter than this share of its target length gets one automatic top-up
     max_topups: int  # how many top-up passes one answer may use (0 switches the feature off)
     stream_rounds: int  # how many times the whole model list is tried when every model fails (503, rate limit)
+    # semantic cache (Redis Stack / Redis 8 with the search module)
+    redis_url: str  # empty = cache switched off
+    cache_enabled: bool
+    cache_threshold: float  # cosine similarity needed for a hit (0.95 = very close paraphrases only)
+    cache_ttl_seconds: int  # an entry deletes itself after this long
+    cache_version: str  # bump it (CACHE_VERSION=2) after re-ingesting notes or changing prompts: old entries stop matching
 
 
 def load_settings() -> Settings:
@@ -130,6 +136,11 @@ def load_settings() -> Settings:
         min_answer_ratio=float(_optional("MIN_ANSWER_RATIO", "0.8")),
         max_topups=_int("MAX_TOPUPS", 1, 0, 3),
         stream_rounds=_int("STREAM_ROUNDS", 2, 1, 4),
+        redis_url=_optional("REDIS_URL"),
+        cache_enabled=_optional("SEMANTIC_CACHE", "true").lower() not in ("0", "false", "no", "off"),
+        cache_threshold=float(_optional("CACHE_THRESHOLD", "0.95")),
+        cache_ttl_seconds=_int("CACHE_TTL_SECONDS", 7 * 24 * 3600, 60, 90 * 24 * 3600),
+        cache_version=_optional("CACHE_VERSION", "1"),
     )
 
 

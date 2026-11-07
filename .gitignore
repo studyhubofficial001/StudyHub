@@ -13,6 +13,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+/ai-service/src/ai_service/evaluation/data/*
 
 # Environment Variables (Crucial to prevent leaking API keys)
 .env

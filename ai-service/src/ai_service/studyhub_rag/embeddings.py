@@ -1,5 +1,7 @@
 import logging
+import threading
 import time
+from collections import OrderedDict
 import httpx
 from langchain_core.embeddings import Embeddings
 
@@ -11,6 +13,12 @@ QUERY_PREFIX="query: "
 DOC_PREFIX="document: "
 MAX_CHARS=1400
 BATCH=32
+
+# Small memo for query embeddings. The semantic cache embeds the question first; when it is a miss, the retriever
+# embeds the SAME text again, and this makes that second call free (no extra OpenRouter request).
+_MEMO_MAX = 256
+_memo: "OrderedDict[str, list[float]]" = OrderedDict()
+_memo_lock = threading.Lock()
 
 class OpenRouterEmbeddings(Embeddings):
     def __init__(self) -> None:
@@ -69,7 +77,16 @@ class OpenRouterEmbeddings(Embeddings):
         return out
 
     def embed_query(self, text:str) -> list[float]:
-        return self._embed([text],QUERY_PREFIX)[0]
+        with _memo_lock:
+            if text in _memo:
+                _memo.move_to_end(text)
+                return list(_memo[text])
+        vector = self._embed([text],QUERY_PREFIX)[0]
+        with _memo_lock:
+            _memo[text] = vector
+            while len(_memo) > _MEMO_MAX:
+                _memo.popitem(last=False)
+        return list(vector)
 
     def embed_documents(self, texts:list[str]) -> list[list[float]]:
         return self._embed(texts,DOC_PREFIX)
